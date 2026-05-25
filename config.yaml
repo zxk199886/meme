@@ -1,0 +1,86 @@
+# 游戏自动化脚本配置文件
+# 根据你的游戏和屏幕分辨率调整以下参数
+
+game:
+  name: "MyGame"
+  window_title: ""          # 游戏窗口标题（留空则不限定窗口）
+  resolution: [1920, 1080]  # 目标分辨率
+
+automation:
+  loop_count: 0             # 循环次数，0 = 无限循环
+  loop_delay: 1.0           # 每轮之间的等待时间（秒）
+  action_delay: 0.3         # 每个动作之间的延迟（秒）
+  click_duration: 0.1       # 鼠标移动到目标的时长（秒）
+  failsafe: true            # 开启后，将鼠标移到屏幕左上角可紧急停止
+
+# 热键配置
+hotkeys:
+  start: "F5"               # 开始/暂停自动化
+  stop: "F6"                # 完全停止脚本
+
+# 图像识别配置
+image_matching:
+  confidence: 0.85          # 图像匹配置信度 (0.0-1.0)，越高越严格
+  grayscale: true           # 使用灰度图提升识别速度
+  timeout: 10               # 等待图像出现的最长时间（秒）
+
+# 动作序列（按顺序执行）
+# 每个动作支持以下类型：
+#   click_image   - 找到图像后点击
+#   click_pos     - 点击固定坐标
+#   press_key     - 按键
+#   wait          - 等待指定秒数
+#   wait_image    - 等待图像出现再继续
+#   drag          - 拖拽操作
+actions:
+  - type: press_key
+    key: "1"
+    description: "技能1"
+
+  - type: wait
+    seconds: 0.5
+    description: "等待技能动画"
+
+  - type: press_key
+    key: "2"
+    description: "技能2"
+
+  - type: wait
+    seconds: 0.5
+
+  - type: press_key
+    key: "3"
+    description: "技能3"
+
+  - type: wait
+    seconds: 2.0
+    description: "等待战斗结束"
+
+# 条件检测：满足条件时触发对应动作组
+conditions:
+  - name: "血量过低"
+    image: "templates/low_hp.png"      # 检测图像路径
+    confidence: 0.8
+    action_group:
+      - type: press_key
+        key: "h"
+        description: "使用药水"
+      - type: wait
+        seconds: 1.0
+
+  - name: "背包已满"
+    image: "templates/bag_full.png"
+    confidence: 0.8
+    action_group:
+      - type: press_key
+        key: "b"
+        description: "打开背包整理"
+      - type: wait
+        seconds: 2.0
+
+# 日志配置
+logging:
+  level: "INFO"             # DEBUG / INFO / WARNING / ERROR
+  save_to_file: true
+  log_file: "automation.log"
+  screenshot_on_error: true # 出错时自动截图保存
