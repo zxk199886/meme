@@ -1,0 +1,21 @@
+{
+  "name": "monkey-saga",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pixel-art Journey-to-the-West action platformer on Solana (working title: Monkey Saga)",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter game dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

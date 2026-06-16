@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Anchor / Solana
+target/
+.anchor/
+test-ledger/
+
+# Secrets — NEVER commit
+**/*.env
+.env
+.env.*
+!.env.example
+**/id.json
+**/keypair*.json
+**/*-keypair.json
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Legacy Python tool
+legacy/__pycache__/
+legacy/screenshots/
+legacy/error_screenshots/
+legacy/*.pyc

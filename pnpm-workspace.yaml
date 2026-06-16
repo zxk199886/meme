@@ -1,0 +1,5 @@
+packages:
+  - "packages/*"
+# NOTE: programs/ is intentionally NOT a pnpm workspace member.
+# Anchor owns its own Cargo/Rust workspace there; the generated IDL is
+# copied into packages/shared/src/idl so the TS side stays typed.
