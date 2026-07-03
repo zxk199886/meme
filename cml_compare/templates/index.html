@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CML Revision Compare</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; margin: 0; background: #f2f4f8; color: #1c2733; }
+  header { background: #10069f; color: #fff; padding: 18px 32px; }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .85; }
+  main { max-width: 980px; margin: 28px auto; padding: 0 20px 60px; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,24,40,.1); padding: 24px; margin-bottom: 22px; }
+  .uploads { display: flex; gap: 18px; flex-wrap: wrap; }
+  .drop { flex: 1 1 260px; border: 2px dashed #9aa7bd; border-radius: 10px; padding: 22px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop.hover { border-color: #10069f; background: #eef0ff; }
+  .drop strong { display: block; font-size: 14px; margin-bottom: 6px; }
+  .drop .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; padding: 2px 10px; border-radius: 999px; margin-bottom: 10px; }
+  .drop.old .badge { background: #fde8e8; color: #b42318; }
+  .drop.new .badge { background: #e6f4ea; color: #137333; }
+  .drop .fname { font-size: 12px; color: #46586e; margin-top: 8px; word-break: break-all; min-height: 16px; }
+  .drop input { display: none; }
+  button.primary { margin-top: 20px; background: #10069f; color: #fff; border: 0; border-radius: 8px; padding: 12px 28px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  button.primary:hover { background: #1d12c9; }
+  .error { background: #fde8e8; color: #b42318; border: 1px solid #f5b5b1; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; }
+  .stats { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 6px; }
+  .stat { flex: 1 1 120px; background: #f6f8fb; border-radius: 8px; padding: 12px 14px; text-align: center; }
+  .stat .n { font-size: 26px; font-weight: 700; }
+  .stat .l { font-size: 12px; color: #46586e; }
+  .stat.add .n { color: #137333; } .stat.rem .n { color: #b42318; } .stat.mod .n { color: #b45309; }
+  .ok { background: #e6f4ea; color: #137333; border-radius: 8px; padding: 14px 18px; font-weight: 600; }
+  a.download { display: inline-block; margin-top: 16px; background: #137333; color: #fff; text-decoration: none; border-radius: 8px; padding: 12px 26px; font-weight: 600; }
+  a.download:hover { background: #0f5c28; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  th { background: #305496; color: #fff; text-align: left; padding: 7px 10px; }
+  td { border-bottom: 1px solid #e4e9f0; padding: 6px 10px; vertical-align: top; }
+  tr.add td { background: #eaf6ec; }
+  tr.rem td { background: #fdecec; }
+  .cat { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #eef0f5; white-space: nowrap; }
+  h2 { font-size: 16px; margin: 26px 0 4px; }
+  .sub { font-size: 12px; color: #46586e; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CML Revision Compare</h1>
+  <p>Characteristics Matrix difference checker &mdash; upload the old and new revision, get a marked-up copy of the new CML.</p>
+</header>
+<main>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form class="card" method="post" action="/compare" enctype="multipart/form-data">
+    <div class="uploads">
+      <label class="drop old" id="drop-old">
+        <span class="badge">OLD REVISION</span>
+        <strong>Drop the old CML here</strong>
+        <span class="sub">or click to browse (.xlsx)</span>
+        <div class="fname"></div>
+        <input type="file" name="old_file" accept=".xlsx,.xlsm" required>
+      </label>
+      <label class="drop new" id="drop-new">
+        <span class="badge">NEW REVISION</span>
+        <strong>Drop the new CML here</strong>
+        <span class="sub">or click to browse (.xlsx)</span>
+        <div class="fname"></div>
+        <input type="file" name="new_file" accept=".xlsx,.xlsm" required>
+      </label>
+    </div>
+    <button class="primary" type="submit">Compare revisions</button>
+  </form>
+
+  {% if result %}
+  {% set d = result.diff %}
+  <div class="card">
+    <h2 style="margin-top:0">Comparison result</h2>
+    <p class="sub">
+      Old: <b>{{ result.old_name }}</b> ({{ result.old_version }}, {{ result.old_count }} features)<br>
+      New: <b>{{ result.new_name }}</b> ({{ result.new_version }}, {{ result.new_count }} features)
+    </p>
+
+    {% if not d.has_changes %}
+      <div class="ok">No differences found between the two revisions.</div>
+    {% else %}
+    <div class="stats">
+      <div class="stat add"><div class="n">{{ d.added_features|length }}</div><div class="l">Added features</div></div>
+      <div class="stat rem"><div class="n">{{ d.removed_features|length }}</div><div class="l">Removed features</div></div>
+      <div class="stat mod"><div class="n">{{ d.modified_features|length }}</div><div class="l">Modified features</div></div>
+      <div class="stat"><div class="n">{{ result.unchanged }}</div><div class="l">Unchanged features</div></div>
+      <div class="stat"><div class="n">{{ d.field_changes|length }}</div><div class="l">Cell changes</div></div>
+    </div>
+    {% endif %}
+    <a class="download" href="/download/{{ result.token }}">Download marked-up CML ({{ result.download_name }})</a>
+  </div>
+
+  {% if d.metadata_changes %}
+  <div class="card">
+    <h2 style="margin-top:0">Document / metadata changes</h2>
+    <table>
+      <tr><th>Field</th><th>Old</th><th>New</th></tr>
+      {% for m in d.metadata_changes %}
+      <tr><td>{{ m.label }}</td><td>{{ m.old }}</td><td>{{ m.new }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if d.added_features or d.removed_features %}
+  <div class="card">
+    <h2 style="margin-top:0">Added / removed features</h2>
+    <table>
+      <tr><th>Change</th><th>Feature No.</th><th>Description</th><th>Dim</th><th>Verification / Equipment</th></tr>
+      {% for no in d.added_features %}{% set f = d.new_doc.features[no] %}
+      <tr class="add"><td>ADDED</td><td>{{ no }}</td><td>{{ f.fields.get('B7') or '' }}</td>
+          <td>{{ f.fields.get('B1') or '' }}</td>
+          <td>{{ f.fields.get('E1') or '' }} / {{ f.fields.get('E2') or '' }}</td></tr>
+      {% endfor %}
+      {% for no in d.removed_features %}{% set f = d.old_doc.features[no] %}
+      <tr class="rem"><td>REMOVED</td><td>{{ no }}</td><td>{{ f.fields.get('B7') or '' }}</td>
+          <td>{{ f.fields.get('B1') or '' }}</td>
+          <td>{{ f.fields.get('E1') or '' }} / {{ f.fields.get('E2') or '' }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if d.added_subtasks or d.removed_subtasks %}
+  <div class="card">
+    <h2 style="margin-top:0">Process grid subtask columns</h2>
+    <table>
+      <tr><th>Change</th><th>Subtask No.</th><th>Description</th><th>Group</th></tr>
+      {% for st in d.added_subtasks %}
+      <tr class="add"><td>ADDED</td><td>{{ st.number }}</td><td>{{ st.description }}</td><td>{{ st.group }}</td></tr>
+      {% endfor %}
+      {% for st in d.removed_subtasks %}
+      <tr class="rem"><td>REMOVED</td><td>{{ st.number }}</td><td>{{ st.description }}</td><td>{{ st.group }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if d.field_changes %}
+  <div class="card">
+    <h2 style="margin-top:0">All cell changes ({{ d.field_changes|length }})</h2>
+    <table>
+      <tr><th>Feature No.</th><th>Field</th><th>Old</th><th>New</th><th>Category</th></tr>
+      {% for c in d.field_changes %}
+      <tr><td>{{ c.feature_no }}</td><td>{{ c.field_name }}</td><td>{{ c.old }}</td>
+          <td>{{ c.new }}</td><td><span class="cat">{{ c.category }}</span></td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+</main>
+<script>
+  document.querySelectorAll(".drop").forEach(drop => {
+    const input = drop.querySelector("input");
+    const fname = drop.querySelector(".fname");
+    input.addEventListener("change", () => { fname.textContent = input.files[0] ? input.files[0].name : ""; });
+    ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("hover"); }));
+    ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("hover"); }));
+    drop.addEventListener("drop", e => {
+      if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; input.dispatchEvent(new Event("change")); }
+    });
+  });
+</script>
+</body>
+</html>
