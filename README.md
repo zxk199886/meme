@@ -83,3 +83,7 @@ conditions:
 - 本工具仅用于合法的个人游戏体验，请遵守游戏服务条款
 - 部分游戏有反作弊系统，使用前请了解风险
 - `failsafe: true` 时鼠标移到左上角可立即停止，建议保持开启
+
+## Pearl 租卡挖矿面板
+
+另见 [`pearl_dashboard/`](pearl_dashboard/README.md)：根据 SafeTrade 实时币价和 Vast.ai 租卡价格自动租卡挖 Pearl (PRL) 并监控收益。

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pearl 租卡挖矿</title>
+<style>
+:root {
+  --bg: #f7f7f5; --surface: #ffffff; --border: #e3e2de;
+  --ink: #1f1f1d; --ink-2: #55534e; --ink-3: #8a8780;
+  --good: #0ca30c; --good-ink: #006300; --bad: #d03b3b; --bad-ink: #a32222; --warn: #fab219;
+  --accent: #2f6fdb; --accent-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121211; --surface: #1a1a19; --border: #2e2d2a;
+    --ink: #eeede9; --ink-2: #b4b1aa; --ink-3: #85827b;
+    --good-ink: #5fd35f; --bad-ink: #ff8a80; --accent: #6b9cf0; --accent-ink: #0d0d0c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; }
+main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 15px; margin: 24px 0 8px; }
+.muted { color: var(--ink-3); }
+.sub { color: var(--ink-2); font-size: 12px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--ink); cursor: pointer; }
+button:hover { border-color: var(--ink-3); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { color: var(--bad-ink); border-color: var(--bad); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); font-size: 13px; }
+.notice.warn { border-left: 4px solid var(--warn); }
+.notice.err { border-left: 4px solid var(--bad); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .label { color: var(--ink-2); font-size: 12px; }
+.tile .value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
+th { color: var(--ink-2); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--surface); }
+th:first-child, td:first-child, td.l, th.l { text-align: left; }
+tr:last-child td { border-bottom: 0; }
+tr.loss td { color: var(--ink-3); }
+.pnl { display: inline-flex; gap: 4px; align-items: center; }
+.pnl.up { color: var(--good-ink); } .pnl.down { color: var(--bad-ink); }
+.bar { display: inline-block; width: 4px; height: 14px; border-radius: 2px; vertical-align: -2px; margin-right: 6px; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0; }
+.controls label { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 13px; }
+input[type=number], select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--ink); width: 100px; }
+.log { max-height: 320px; overflow-y: auto; font-size: 13px; }
+.log div { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.empty { padding: 16px; color: var(--ink-3); text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Pearl (PRL) 租卡挖矿</h1>
+      <div class="sub" id="updated">加载中…</div>
+    </div>
+    <div class="btns">
+      <span class="badge" id="mode"></span>
+      <button id="btn-sim">模拟</button>
+      <button id="btn-live" class="primary">确认开始真租</button>
+      <button id="btn-pause">暂停租新卡</button>
+      <button id="btn-stop" class="danger">紧急停止并全部退租</button>
+    </div>
+  </header>
+  <div id="notices"></div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <h2>运行中的实例</h2>
+  <div class="card"><table id="inst"></table></div>
+
+  <h2>市场报价（按预期利润率排序）</h2>
+  <div class="controls">
+    <label>假设币价 $ <input type="number" id="wi-price" step="0.01" min="0"></label>
+    <label>难度 × <input type="number" id="wi-diff" step="0.1" min="0.1" value="1"></label>
+    <button id="wi-reset">用实时值</button>
+    <label>平台 <select id="f-plat"><option value="">全部</option></select></label>
+    <label><input type="checkbox" id="f-profit"> 只看赚钱的</label>
+  </div>
+  <div class="card"><table id="offers"></table></div>
+
+  <h2>操作日志</h2>
+  <div class="card log" id="log"></div>
+  <p class="sub">数字是估算，矿池实际到账才是准的。币价、难度随时在变。</p>
+</main>
+<script>
+const TOKEN = "__TOKEN__";
+let S = null, whatIfPrice = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const usd = (v, d = 2) => v == null ? "—" : (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(d);
+const pct = v => v == null ? "—" : (v * 100).toFixed(0) + "%";
+const ago = ts => { if (!ts) return "—"; const m = (Date.now() / 1000 - ts) / 60;
+  return m < 1 ? "刚刚" : m < 60 ? Math.round(m) + " 分钟前" : (m / 60).toFixed(1) + " 小时前"; };
+const dur = m => m < 60 ? Math.round(m) + " 分" : (m / 60).toFixed(1) + " 小时";
+function pnl(v, d = 2) {
+  if (v == null) return "—";
+  if (Math.abs(v) < 0.5 * 10 ** -d) return usd(0, d);
+  const up = v >= 0;
+  return `<span class="pnl ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${usd(v, d)}</span>`;
+}
+
+function econ(usdPerHr, th) {
+  const price = whatIfPrice ?? S.price.price;
+  const diff = parseFloat($("wi-diff").value) || 1;
+  const prlDay = th * S.yield.value * (1 - S.fee) / diff;
+  const cost = usdPerHr * 24, rev = price == null ? null : prlDay * price;
+  return { prlDay, cost, rev, profit: rev == null ? null : rev - cost,
+    margin: rev == null || !cost ? null : (rev - cost) / cost, be: prlDay > 0 ? cost / prlDay : null };
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}) });
+  const data = await r.json();
+  if (!r.ok) { alert(data.error || "失败"); return; }
+  S = data; render();
+}
+
+$("btn-sim").onclick = () => post("/api/mode", { mode: "simulate" });
+$("btn-pause").onclick = () => post("/api/mode", { mode: "halted" });
+$("btn-live").onclick = () => {
+  const l = S.limits;
+  if (confirm(`确认开始真租？会花 Vast 账户里的真钱。\n\n上限：最多 ${l.max_gpus} 张卡，单卡 ≤ $${l.max_usd_per_hr_per_gpu}/h，` +
+      `合计 ≤ $${l.max_hourly_spend}/h，余额低于 $${l.min_balance_reserve} 全部退租。`))
+    post("/api/mode", { mode: "live" });
+};
+$("btn-stop").onclick = () => { if (confirm("退掉所有 pearl- 实例并暂停？")) post("/api/stop_all"); };
+$("wi-price").oninput = e => { whatIfPrice = e.target.value === "" ? null : parseFloat(e.target.value); render(); };
+$("wi-diff").oninput = render;
+$("wi-reset").onclick = () => { whatIfPrice = null; $("wi-price").value = ""; $("wi-diff").value = 1; render(); };
+$("f-plat").onchange = render; $("f-profit").onchange = render;
+
+function render() {
+  if (!S || !S.price) return;
+  const modes = { live: ["真租中", "var(--good)"], simulate: ["模拟（不花钱）", "var(--warn)"], halted: ["已暂停", "var(--ink-3)"] };
+  const [mtext, mcolor] = modes[S.mode];
+  $("mode").innerHTML = `<span class="dot" style="background:${mcolor}"></span>${mtext}`;
+  $("btn-live").disabled = S.mode === "live" || S.live_blockers.length > 0;
+  $("updated").textContent = `更新于 ${ago(S.now)} · 每 ${S.loop_seconds} 秒刷新`;
+  if (!$("wi-price").placeholder || whatIfPrice == null) $("wi-price").placeholder = S.price.price?.toFixed(3) ?? "";
+
+  let n = "";
+  if (S.live_blockers.length && S.mode !== "live")
+    n += `<div class="notice warn">真租还没解锁：${S.live_blockers.map(esc).join("；")}</div>`;
+  if (!S.price.live)
+    n += `<div class="notice err">拿不到实时币价（${S.price.source ? "正在用" + esc(S.price.source) + "价格，" : ""}不会租新卡；超过 ${S.limits.price_stale_minutes} 分钟会退掉所有卡）</div>`;
+  const errs = Object.entries(S.errors || {});
+  if (errs.length) n += `<div class="notice err"><b>数据源出错</b><br>${errs.map(([k, v]) => esc(k) + "：" + esc(v)).join("<br>")}</div>`;
+  $("notices").innerHTML = n;
+
+  const live = S.instances.filter(i => !i.simulated), sim = S.instances.filter(i => i.simulated);
+  const T = S.mode === "simulate" ? S.totals.sim : S.totals.real;
+  const label = S.mode === "simulate" ? "模拟" : "实际";
+  const poolPnl = S.totals.real.pnl_pool;
+  const h = S.hashrates["RTX 5090"];
+  $("tiles").innerHTML = [
+    ["PRL 价格", S.price.price == null ? "—" : "$" + S.price.price.toFixed(3),
+      `${esc(S.price.source || "无")} · ${S.price.live ? "实时" : "非实时"}`],
+    ["Vast 余额", usd(S.balance), S.runway_days == null ? "当前没有花费" : `按当前花费还能撑 ${S.runway_days.toFixed(1)} 天`],
+    ["运行中", `${live.length + sim.length} 台`, `真实 ${live.length} · 模拟 ${sim.length} · 实际花费 ${usd(S.hourly_spend, 3)}/h`],
+    [`${label}累计盈亏（估）`, pnl(T.pnl_est), `花费 ${usd(T.cost)} · 预计挖到 ${T.prl_est.toFixed(3)} PRL`],
+    ["矿池实际盈亏", poolPnl == null ? "—" : pnl(poolPnl),
+      S.totals.real.prl_pool == null ? "没配置矿池统计 API" : `矿池实收 ${S.totals.real.prl_pool.toFixed(3)} PRL`],
+    ["产出 / 算力", `${(S.yield.value * 1000).toFixed(2)}`,
+      `PRL/天 每 1000 TH/s（${esc(S.yield.source)}）` + (h ? ` · 5090 ${h.measured ? h.measured.toFixed(0) + " TH/s 实测" : h.config + " TH/s 配置"}` : "")],
+  ].map(([l, v, s]) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div><div class="sub">${s}</div></div>`).join("");
+
+  if (!S.instances.length) $("inst").innerHTML = `<tr><td class="empty">没有运行中的实例</td></tr>`;
+  else $("inst").innerHTML = `<tr><th class="l">实例</th><th>GPU</th><th>$/小时</th><th>已运行</th><th>状态</th>
+    <th>算力 实测/预期</th><th>已花费</th><th>预计 PRL</th><th>利润率</th><th>保本价</th><th></th></tr>` +
+    S.instances.map(i => { const e = econ(i.usd_per_hr, i.expected_th);
+      return `<tr><td class="l">${esc(i.id)}${i.simulated ? ' <span class="muted">模拟</span>' : ""}</td>
+      <td>${esc(i.gpu)} ×${i.num_gpus}</td><td>${usd(i.usd_per_hr, 3)}</td><td>${dur(i.age_min)}</td>
+      <td>${esc(i.status || "")}${i.gpu_util != null ? " · " + Math.round(i.gpu_util) + "%" : ""}${i.bad_checks ? ` · 亏损 ${i.bad_checks} 次` : ""}</td>
+      <td>${i.pool_th != null ? i.pool_th.toFixed(0) : "—"} / ${i.expected_th.toFixed(0)}</td>
+      <td>${usd(i.cost, 3)}</td><td>${i.prl_est.toFixed(3)}</td><td>${pnlPct(e.margin)}</td><td>${usd(e.be, 3)}</td>
+      <td><button data-id="${esc(i.id)}" class="danger kill">退租</button></td></tr>`; }).join("");
+  document.querySelectorAll(".kill").forEach(b => b.onclick = () => {
+    if (confirm(`退租 ${b.dataset.id}？`)) post("/api/destroy", { id: b.dataset.id }); });
+
+  const plats = [...new Set(S.offers.map(o => o.platform))];
+  const sel = $("f-plat"), cur = sel.value;
+  sel.innerHTML = `<option value="">全部</option>` + plats.map(p => `<option ${p === cur ? "selected" : ""}>${esc(p)}</option>`).join("");
+  const rows = S.offers.map(o => ({ o, e: econ(o.usd_per_hr, o.hashrate_th) }))
+    .filter(({ o, e }) => (!sel.value || o.platform === sel.value) && (!$("f-profit").checked || (e.profit ?? -1) > 0))
+    .sort((a, b) => (b.e.margin ?? -9) - (a.e.margin ?? -9));
+  if (!rows.length) $("offers").innerHTML = `<tr><td class="empty">没有报价（检查 API key 和 gpus 配置）</td></tr>`;
+  else $("offers").innerHTML = `<tr><th class="l">平台</th><th>GPU</th><th>$/小时</th><th>每天成本</th><th>每天收入</th>
+    <th>每天利润</th><th>利润率</th><th>保本币价</th><th>可靠性</th><th class="l">地区/备注</th></tr>` +
+    rows.map(({ o, e }) => `<tr class="${(e.profit ?? 0) < 0 ? "loss" : ""}">
+      <td class="l">${esc(o.platform)}${o.rentable ? "" : ' <span class="muted">仅比价</span>'}</td>
+      <td>${esc(o.gpu)} ×${o.num_gpus}</td><td>${usd(o.usd_per_hr, 3)}</td><td>${usd(e.cost)}</td><td>${usd(e.rev)}</td>
+      <td>${pnl(e.profit)}</td><td>${pnlPct(e.margin)}</td><td>${usd(e.be, 3)}</td>
+      <td>${o.reliability == null ? "—" : (o.reliability * 100).toFixed(1) + "%"}</td><td class="l">${esc(o.location || "")}</td></tr>`).join("");
+
+  const kinds = { rent: "租用", destroy: "退租", mode: "模式", error: "错误" };
+  $("log").innerHTML = S.events.length ? S.events.map(ev =>
+    `<div><span class="muted">${new Date(ev.ts * 1000).toLocaleString()}</span> · <b>${kinds[ev.kind] || esc(ev.kind)}</b>` +
+    `${ev.simulated ? ' <span class="muted">(模拟)</span>' : ""} · ${esc(ev.message)}</div>`).join("")
+    : `<div class="empty">还没有操作</div>`;
+}
+function pnlPct(m) {
+  if (m == null) return "—";
+  return `<span class="pnl ${m >= 0 ? "up" : "down"}">${m >= 0 ? "▲" : "▼"} ${pct(Math.abs(m))}</span>`;
+}
+
+async function refresh() {
+  try { const r = await fetch("/api/state"); S = await r.json(); render(); }
+  catch (e) { $("updated").textContent = "连不上控制器，是不是关掉了？"; }
+}
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

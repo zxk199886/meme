@@ -1,0 +1,100 @@
+# Pearl (PRL) 租卡挖矿控制器配置
+# 复制为 config.yaml 后修改：  cp config.example.yaml config.yaml
+# API key 也可以用环境变量提供：VAST_API_KEY / RUNPOD_API_KEY（优先于本文件）
+
+# ---------------------------------------------------------------------------
+# 运行模式
+# ---------------------------------------------------------------------------
+# true  = 模拟：只记录“会租哪张卡/会退哪张卡”，用虚拟实例算模拟盈亏，不花钱。
+# false = 允许真租。还必须在网页上点“确认开始真租”才会生效（每次启动都要点）。
+dry_run: true
+
+# 网页地址 http://127.0.0.1:8080
+listen_port: 8080
+# 控制循环间隔（秒）
+loop_seconds: 60
+
+# ---------------------------------------------------------------------------
+# 账户
+# ---------------------------------------------------------------------------
+vast:
+  api_key: ""                     # https://cloud.vast.ai/account/ → API Keys
+  base_url: "https://console.vast.ai"
+
+runpod:
+  api_key: ""                     # 可选，只用于在面板上比价，不会在 RunPod 上租卡
+
+# Kryptex 矿池
+pool:
+  wallet: ""                      # 你的 PRL 钱包地址（必填，否则不会真租）
+  stratum: "prl.kryptex.network:7048"   # 也可用 prl-us / prl-eu / prl-sg.kryptex.network:7048
+  fee: 0.03                       # 矿池手续费（Kryptex PPS+ 约 3%，以矿池页面为准）
+  # 矿池统计 API（用于真实算力/收益）。Kryptex 文档：https://pool.kryptex.com/en/api
+  # {wallet} 会被替换。留空则面板只显示 Vast 侧数据。
+  stats_url: ""
+
+# ---------------------------------------------------------------------------
+# 收益估算
+# ---------------------------------------------------------------------------
+# 每张卡的 Pearl 算力（TH/s）。只有在这里列出的型号才会被考虑租用。
+# 5090 在租来的机器上一般 ~340 TH/s（自己调过频可到 ~370）。其它型号请按实测填写。
+gpus:
+  "RTX 5090": 340
+  # "RTX 4090": 0     # 填实测值后再取消注释
+
+# 每 1 TH/s 每天能挖多少 PRL（随全网难度变化！）。
+# 默认值来自 WhatToMine：370 TH/s ≈ 5.75 PRL/天 → 0.01554
+prl_per_th_day: 0.01554
+# 可选：WhatToMine 的 Pearl JSON 地址（形如 https://whattomine.com/coins/<id>.json?hr=370 ...）
+# 填了就自动更新上面的值；whattomine_hashrate_th 是这个 URL 里对应的算力。
+whattomine_url: ""
+whattomine_hashrate_th: 370
+
+# ---------------------------------------------------------------------------
+# 币价
+# ---------------------------------------------------------------------------
+price:
+  safetrade_market: "prlusdt"
+  safetrade_url: "https://safe.trade/api/v2/peatio/public/markets/{market}/tickers"
+  # CoinGecko 的币 id（注意不要填成同名的 Perle）。留空就不用 CoinGecko 兜底。
+  coingecko_id: ""
+  # 手动价格：只用于显示/估算，不会触发真租（自动策略要求实时价格）
+  manual_usd: null
+
+# 不能自动租、但想在面板上比价的平台（每张卡每小时美元）
+manual_offers:
+  - { platform: "Salad", gpu: "RTX 5090", usd_per_hr: 0.25, note: "最低优先级，可能被抢占" }
+  - { platform: "HyperAI", gpu: "RTX 5090", usd_per_hr: 0.35, note: "" }
+
+# ---------------------------------------------------------------------------
+# 自动租卡规则（硬性上限）
+# ---------------------------------------------------------------------------
+limits:
+  max_gpus: 2                 # 同时最多租几张卡
+  max_usd_per_hr_per_gpu: 0.45   # 单卡每小时最高价
+  max_hourly_spend: 0.90      # 所有卡加起来每小时最多花多少
+  min_balance_reserve: 5.0    # Vast 余额低于这个数：不再租，并退掉所有卡
+  max_new_per_cycle: 1        # 每个循环最多新租几台
+  min_margin: 0.20            # 预期利润率 ≥ 20% 才租（利润/成本）
+  min_reliability: 0.97
+  stop_after_bad_checks: 5    # 连续 N 次检查亏钱才退（防止来回抖动）
+  warmup_minutes: 20          # 开机后多少分钟内不做健康检查
+  min_gpu_util: 50            # 预热后 GPU 利用率低于这个（%）算不健康
+  unhealthy_checks: 5         # 连续 N 次不健康就退
+  price_stale_minutes: 30     # 实时币价拿不到超过这么久：退掉所有卡
+  max_lifetime_hours: 12      # 每台机器最多活多久，到点在机器内部自毁（电脑关机也能止损）
+  renew_before_minutes: 30    # 到期前多少分钟开始租替换机
+
+# ---------------------------------------------------------------------------
+# 矿机实例
+# ---------------------------------------------------------------------------
+instance:
+  image: "nvidia/cuda:12.8.1-runtime-ubuntu22.04"
+  disk_gb: 10
+  label_prefix: "pearl-"      # 只管理带这个前缀的实例，你其它的实例不会被动
+  # SRBMiner-MULTI 官方发布（pearlhash 开发者手续费 2%）
+  miner_url: "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.5.9/SRBMiner-Multi-3-5-9-Linux.tar.gz"
+  # 填上 sha256 后，下载的文件对不上就拒绝运行。留空则只把算出的 sha256 打到日志里。
+  miner_sha256: ""
+  miner_fee: 0.02
+  extra_args: ""              # 额外 SRBMiner 参数，例如 "--pearl-k2"
