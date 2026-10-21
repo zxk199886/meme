@@ -59,7 +59,7 @@ def make_handler(ctrl, port):
             if self.path in ("/", "/index.html"):
                 self._send(200, page, "text/html; charset=utf-8")
             elif self.path == "/api/state":
-                self._json(200, ctrl.state)
+                self._json(200, ctrl.state or {"loading": True, "error": ctrl.last_error})
             elif self.path == "/api/history":
                 self._json(200, history(ctrl))
             else:
@@ -104,8 +104,11 @@ def loop(ctrl, seconds, on_tick=None):
             if on_tick:
                 on_tick()
             ctrl.cycle()
+            ctrl.last_error = None
         except Exception:
-            ctrl.store.log("error", "控制循环出错：" + traceback.format_exc(limit=3))
+            ctrl.last_error = traceback.format_exc(limit=3)
+            ctrl.store.log("error", "控制循环出错：" + ctrl.last_error)
+            print("控制循环出错：\n" + ctrl.last_error, file=sys.stderr)
         time.sleep(seconds)
 
 
@@ -141,8 +144,9 @@ def main():
     ctrl = Controller(cfg, session, Store(str(db)))
     if mock:
         seed_history(ctrl, session)
-    ctrl.cycle()
 
+    # The first cycle runs in the background so the page is reachable right away,
+    # even when a data source is slow or blocked.
     threading.Thread(target=loop, args=(ctrl, cfg["loop_seconds"], session.wiggle if mock else None),
                      daemon=True).start()
     port = int(cfg["listen_port"])

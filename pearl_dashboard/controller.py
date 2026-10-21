@@ -28,6 +28,7 @@ class Controller:
         self.last_live_price_ts = None
         self.started = clock()  # price-staleness grace period starts here
         self.state = {}
+        self.last_error = None  # traceback of the last failed cycle, shown on the page
         self.lock = threading.RLock()
         # Simulated rentals don't survive a restart.
         for r in store.open_rentals():
