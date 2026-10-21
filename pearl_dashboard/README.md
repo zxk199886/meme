@@ -15,20 +15,41 @@
 
 ## 模拟一天（不需要任何账号，不花钱）
 
-需要 Python 3.9+，在仓库根目录（`meme/`）下运行：
+需要 Python 3.9+ 和 Git。
 
-```bash
-pip install -r pearl_dashboard/requirements.txt
+### Windows（PowerShell）
+
+开始菜单搜 “PowerShell” 打开，依次输入：
+
+```powershell
+# 下载代码（只需第一次）
+git clone https://github.com/zxk199886/meme.git
+cd meme
+git checkout claude/eager-keller-wp51iz
+pip install -r pearl_dashboard\requirements.txt
 
 # 1. 自检：几秒钟，看币价和 Vast 报价能不能拿到
 python -m pearl_dashboard.check
 
-# 2. 都是 ✅ 就开始跑（让它开一整天）
+# 2. 都是 ✅ 就开始跑，浏览器打开 http://127.0.0.1:8080 ，这个窗口别关
 python -m pearl_dashboard.server
-#    Mac 防休眠：caffeinate -i python -m pearl_dashboard.server
-#    Windows：设置 → 系统 → 电源 → 睡眠改成“从不”，别关这个窗口
 
-# 3. 第二天看报告，把输出贴给 Claude
+# 3. 第二天另开一个 PowerShell 看报告，把输出贴给 Claude
+cd meme
+python -m pearl_dashboard.report
+```
+
+- 提示找不到 `python` 时，把命令里的 `python` 换成 `py`。
+- 面板运行期间会自动阻止 Windows 休眠（关掉窗口即恢复）。但**笔记本合盖仍会休眠**：插上电源、别合盖，
+  或在 控制面板 → 电源选项 → “选择关闭笔记本计算机盖的功能” 里改成“不采取任何操作”。
+- 以后更新代码：在 `meme` 文件夹里运行 `git pull`。
+
+### Mac / Linux
+
+```bash
+pip install -r pearl_dashboard/requirements.txt
+python -m pearl_dashboard.check
+caffeinate -i python -m pearl_dashboard.server   # Mac 防休眠；Linux 直接 python -m pearl_dashboard.server
 python -m pearl_dashboard.report
 ```
 
@@ -79,7 +100,8 @@ python -m pearl_dashboard.server
 想先看看面板长什么样（假数据，不连任何网站）：
 
 ```bash
-MOCK=1 python -m pearl_dashboard.server
+MOCK=1 python -m pearl_dashboard.server            # Mac / Linux
+$env:MOCK=1; python -m pearl_dashboard.server      # Windows PowerShell
 ```
 
 ## 四、建议的上手顺序

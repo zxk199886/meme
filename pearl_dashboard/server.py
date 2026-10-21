@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import secrets
+import sys
 import threading
 import time
 import traceback
@@ -108,6 +109,18 @@ def loop(ctrl, seconds, on_tick=None):
         time.sleep(seconds)
 
 
+def keep_awake():
+    """Stop Windows from sleeping while this process runs (the display may still turn off).
+
+    Windows clears the request automatically when the process exits.
+    """
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+    return bool(ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Pearl 租卡挖矿控制器")
     ap.add_argument("--config", help="配置文件路径（默认 pearl_dashboard/config.yaml）")
@@ -135,6 +148,8 @@ def main():
     port = int(cfg["listen_port"])
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(ctrl, port))
     print(f"面板: http://127.0.0.1:{port}   模式: {'模拟数据 MOCK' if mock else '真实数据'}")
+    if keep_awake():
+        print("已阻止电脑休眠（关闭这个窗口即恢复）。笔记本请插电，别合盖。")
     if ctrl.live_blockers():
         print("真租未解锁：" + "；".join(ctrl.live_blockers()))
     try:
