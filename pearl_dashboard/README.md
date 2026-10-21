@@ -13,9 +13,33 @@
 > ⚠️ 这是用真钱做的高风险操作。币价一天能跌 10%+，难度会随币价上涨而上升，
 > 所有收益数字都是估算。最大损失 = 你 Vast 账户里的余额。我不是理财顾问。
 
-## 一、安装
+## 模拟一天（不需要任何账号，不花钱）
 
-需要 Python 3.9+。
+需要 Python 3.9+，在仓库根目录（`meme/`）下运行：
+
+```bash
+pip install -r pearl_dashboard/requirements.txt
+
+# 1. 自检：几秒钟，看币价和 Vast 报价能不能拿到
+python -m pearl_dashboard.check
+
+# 2. 都是 ✅ 就开始跑（让它开一整天）
+python -m pearl_dashboard.server
+#    Mac 防休眠：caffeinate -i python -m pearl_dashboard.server
+#    Windows：设置 → 系统 → 电源 → 睡眠改成“从不”，别关这个窗口
+
+# 3. 第二天看报告，把输出贴给 Claude
+python -m pearl_dashboard.report
+```
+
+- 不填配置也能模拟：没有 `config.yaml` 时用 `config.example.yaml` 的默认值，Vast 报价先尝试不登录查询。
+  如果自检提示“Vast 要求 API key”，去 Vast.ai 注册拿个 key 填进 `config.yaml`（查报价不花钱）。
+- 自检有 ❌：把整段输出贴给 Claude，通常只要改配置里的一个地址。
+- 面板 http://127.0.0.1:8080 的“过去 24 小时”一栏会实时显示价格曲线、保本线、值得租的时间段和模拟盈亏。
+- 模拟没有算开机等待、坏机器这些损耗，所以**模拟盈亏是上限**，真租会差一些。
+- 电脑休眠的时间不计入报告；中途重启面板没关系，历史保存在 `pearl_dashboard/pearl.sqlite3`。
+
+## 一、安装
 
 ```bash
 pip install -r pearl_dashboard/requirements.txt
@@ -24,7 +48,7 @@ cp pearl_dashboard/config.example.yaml pearl_dashboard/config.yaml
 
 ## 二、填配置 `pearl_dashboard/config.yaml`
 
-必填三项：
+真租时必填三项（只模拟的话都可以不填）：
 
 | 配置 | 去哪拿 |
 |---|---|
@@ -60,7 +84,7 @@ MOCK=1 python -m pearl_dashboard.server
 
 ## 四、建议的上手顺序
 
-1. **模拟一天**（默认就是模拟）：程序会用虚拟机器跑完整策略，面板上显示模拟盈亏，日志里写“会租哪张、会退哪张”。不花钱。
+1. **模拟一天**（见最上面）：程序会用虚拟机器跑完整策略，面板上显示模拟盈亏，日志里写“会租哪张、会退哪张”。不花钱。
 2. **小额真租**：把 `limits.max_gpus` 改成 1，`dry_run: false`，重启，在网页上点“确认开始真租”。
    跑几个小时后看“矿池实际盈亏”是否和预估一致，以及 Kryptex 网站上是否能看到 `vast<实例号>` 这个矿工。
 3. 确认实际收益靠谱再慢慢调大上限。
@@ -95,6 +119,8 @@ MOCK=1 python -m pearl_dashboard.server
 
 ```
 server.py        网页 + 控制循环入口
+check.py         数据源自检
+report.py        过去 N 小时的模拟报告
 controller.py    每个循环：拉数据 → 决策 → 执行 → 记账
 strategy.py      租/退的规则（纯函数，有单元测试）
 calc.py          利润、保本价公式

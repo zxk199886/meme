@@ -9,7 +9,9 @@ class VastClient:
     def __init__(self, session, api_key, base_url="https://console.vast.ai"):
         self.s = session
         self.base = base_url.rstrip("/")
-        self.headers = {"Authorization": f"Bearer {api_key}"}
+        self.has_key = bool(api_key)
+        # Without a key only the public offer search is attempted (simulation).
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     def _url(self, path):
         return self.base + path
@@ -28,6 +30,8 @@ class VastClient:
             "limit": limit,
         }
         r = self.s.post(self._url("/api/v0/bundles/"), json=query, headers=self.headers, timeout=TIMEOUT)
+        if r.status_code in (401, 403) and not self.has_key:
+            raise RuntimeError("Vast 要求 API key 才能看报价：注册后把 key 填进 config.yaml 的 vast.api_key")
         r.raise_for_status()
         return [normalize_offer(o) for o in r.json().get("offers", [])]
 

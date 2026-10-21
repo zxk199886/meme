@@ -86,6 +86,20 @@ class FakeSession:
     def delete(self, url, **kw):
         return self._wrap("DELETE", url, **kw)
 
-    def wiggle(self):
-        """Random-walk the price a little (demo mode)."""
-        self.price = max(0.5, self.price * (1 + self.rng.uniform(-0.03, 0.03)))
+    def wiggle(self, scale=0.03, target=2.2):
+        """Mean-reverting random walk of the price (demo mode)."""
+        self.price += (target - self.price) * 0.02
+        self.price = max(0.5, self.price * (1 + self.rng.uniform(-scale, scale)))
+
+
+def seed_history(ctrl, session, hours=24, step=60):
+    """Run the controller over a fake past so the demo has a day of history."""
+    end = time.time()
+    t = [end - hours * 3600]
+    ctrl.clock = session.clock = lambda: t[0]
+    ctrl.started = t[0]
+    while t[0] < end:
+        session.wiggle(scale=0.006)
+        ctrl.cycle()
+        t[0] += step
+    ctrl.clock = session.clock = time.time

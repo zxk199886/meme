@@ -17,7 +17,8 @@ import requests
 
 from . import config as config_mod
 from .controller import Controller
-from .mock import FakeSession
+from .mock import FakeSession, seed_history
+from .report import summarize
 from .store import Store
 
 HERE = Path(__file__).resolve().parent
@@ -58,6 +59,8 @@ def make_handler(ctrl, port):
                 self._send(200, page, "text/html; charset=utf-8")
             elif self.path == "/api/state":
                 self._json(200, ctrl.state)
+            elif self.path == "/api/history":
+                self._json(200, history(ctrl))
             else:
                 self._json(404, {"error": "not found"})
 
@@ -83,6 +86,15 @@ def make_handler(ctrl, port):
                 self._json(400, {"error": str(exc)})
 
     return Handler
+
+
+def history(ctrl, hours=24, max_points=300):
+    now = ctrl.clock()
+    snaps = ctrl.store.snapshots(now - hours * 3600)
+    step = max(1, len(snaps) // max_points)
+    keep = ("ts", "price", "price_live", "cheapest_breakeven", "rentable_n")
+    points = [{k: s[k] for k in keep} for s in snaps[::step]]
+    return {"points": points, "summary": summarize(ctrl.store, hours, now)}
 
 
 def loop(ctrl, seconds, on_tick=None):
@@ -114,6 +126,8 @@ def main():
         session = requests.Session()
         db = HERE / "pearl.sqlite3"
     ctrl = Controller(cfg, session, Store(str(db)))
+    if mock:
+        seed_history(ctrl, session)
     ctrl.cycle()
 
     threading.Thread(target=loop, args=(ctrl, cfg["loop_seconds"], session.wiggle if mock else None),

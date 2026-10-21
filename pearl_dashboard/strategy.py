@@ -6,6 +6,14 @@ def instance_age_min(inst, now):
     return (now - (inst.get("start_date") or now)) / 60
 
 
+def rent_eligible(o, lim):
+    """Offer-level rent conditions (an evaluated offer), ignoring caps and balance."""
+    return (o["rentable"] and o["hashrate_th"] > 0 and o["margin"] is not None
+            and o["margin"] >= lim["min_margin"]
+            and o["usd_per_hr_per_gpu"] <= lim["max_usd_per_hr_per_gpu"]
+            and (o.get("reliability") or 0) >= lim["min_reliability"])
+
+
 def decide(*, now, cfg, mode, price, last_live_price_ts, prl_per_th_day, fee, hashrates,
            offers, instances, balance, pool_workers, counters):
     """Return {"rent": [(offer, reason)], "destroy": [(instance, reason)], "counters", "offers"}.
@@ -87,13 +95,7 @@ def decide(*, now, cfg, mode, price, last_live_price_ts, prl_per_th_day, fee, ha
         for o in evaluated:
             if len(rent) >= lim["max_new_per_cycle"]:
                 break
-            if not o["rentable"] or o["hashrate_th"] <= 0 or o["margin"] is None:
-                continue
-            if o["margin"] < lim["min_margin"]:
-                break  # sorted by margin, nothing better follows
-            if o["usd_per_hr_per_gpu"] > lim["max_usd_per_hr_per_gpu"]:
-                continue
-            if (o.get("reliability") or 0) < lim["min_reliability"]:
+            if not rent_eligible(o, lim):
                 continue
             if gpus + o["num_gpus"] > lim["max_gpus"] or spend + o["usd_per_hr"] > lim["max_hourly_spend"]:
                 continue

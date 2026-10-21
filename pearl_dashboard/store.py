@@ -10,7 +10,15 @@ CREATE TABLE IF NOT EXISTS rentals (
   cost REAL DEFAULT 0, prl_est REAL DEFAULT 0, last_accrued REAL);
 CREATE TABLE IF NOT EXISTS events (ts REAL, kind TEXT, message TEXT, simulated INTEGER);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value REAL);
+CREATE TABLE IF NOT EXISTS snapshots (
+  ts REAL, price REAL, price_live INTEGER, prl_per_th_day REAL, offers_n INTEGER,
+  cheapest_usd_per_gpu REAL, cheapest_breakeven REAL, best_margin REAL, rentable_n INTEGER,
+  sim_running INTEGER, sim_cost REAL, sim_prl REAL);
+CREATE INDEX IF NOT EXISTS snapshots_ts ON snapshots (ts);
 """
+
+SNAPSHOT_COLS = ("ts", "price", "price_live", "prl_per_th_day", "offers_n", "cheapest_usd_per_gpu",
+                 "cheapest_breakeven", "best_margin", "rentable_n", "sim_running", "sim_cost", "sim_prl")
 
 
 class Store:
@@ -75,3 +83,16 @@ class Store:
 
     def set_meta(self, key, value):
         self._exec("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, value))
+
+    def add_snapshot(self, snap):
+        self._exec(f"INSERT INTO snapshots VALUES ({','.join('?' * len(SNAPSHOT_COLS))})",
+                   tuple(snap.get(c) for c in SNAPSHOT_COLS))
+
+    def snapshots(self, since):
+        return self._all("SELECT * FROM snapshots WHERE ts >= ? ORDER BY ts", (since,))
+
+    def sim_rentals_ended(self, since):
+        return self._all("SELECT * FROM rentals WHERE simulated=1 AND ended >= ?", (since,))
+
+    def sim_rentals_started(self, since):
+        return self._all("SELECT COUNT(*) AS n FROM rentals WHERE simulated=1 AND started >= ?", (since,))[0]["n"]

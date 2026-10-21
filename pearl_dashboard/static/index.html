@@ -10,12 +10,14 @@
   --ink: #1f1f1d; --ink-2: #55534e; --ink-3: #8a8780;
   --good: #0ca30c; --good-ink: #006300; --bad: #d03b3b; --bad-ink: #a32222; --warn: #fab219;
   --accent: #2f6fdb; --accent-ink: #ffffff;
+  --series-1: #2a78d6; --series-2: #eb6834; --band: rgba(12, 163, 12, .08); --grid: #ecebe7;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #121211; --surface: #1a1a19; --border: #2e2d2a;
     --ink: #eeede9; --ink-2: #b4b1aa; --ink-3: #85827b;
     --good-ink: #5fd35f; --bad-ink: #ff8a80; --accent: #6b9cf0; --accent-ink: #0d0d0c;
+    --series-1: #3987e5; --series-2: #d95926; --band: rgba(12, 163, 12, .08); --grid: #2a2927;
   }
 }
 * { box-sizing: border-box; }
@@ -62,6 +64,18 @@ input[type=number], select { font: inherit; padding: 4px 8px; border-radius: 6px
 .log { max-height: 320px; overflow-y: auto; font-size: 13px; }
 .log div { padding: 6px 12px; border-bottom: 1px solid var(--border); }
 .empty { padding: 16px; color: var(--ink-3); text-align: center; }
+.chart-card { padding: 12px 14px; overflow: visible; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { display: inline-block; width: 16px; height: 0; border-top: 2px solid; }
+.sw.dash { border-top-style: dashed; }
+.sw.band { height: 10px; border: 0; background: var(--band); }
+.chart-wrap { position: relative; }
+#chart { display: block; width: 100%; height: 220px; touch-action: pan-y; }
+#chart text { fill: var(--ink-3); font-size: 11px; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12); white-space: nowrap; }
+.tip b { font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -82,6 +96,19 @@ input[type=number], select { font: inherit; padding: 4px 8px; border-radius: 6px
   <div id="notices"></div>
 
   <section class="tiles" id="tiles"></section>
+
+  <h2>过去 24 小时</h2>
+  <div class="sub" id="hist-verdict"></div>
+  <section class="tiles" id="hist-tiles"></section>
+  <div class="card chart-card" style="margin-top:12px">
+    <div class="legend">
+      <span><i class="sw" style="border-color:var(--series-1)"></i>PRL 价格</span>
+      <span><i class="sw dash" style="border-color:var(--series-2)"></i>最便宜合格卡的保本价</span>
+      <span><i class="sw band"></i><span id="band-label">有值得租的卡</span></span>
+    </div>
+    <div class="chart-wrap"><svg id="chart" role="img" aria-label="过去 24 小时 PRL 价格与保本价"></svg>
+      <div class="tip" id="tip" hidden></div></div>
+  </div>
 
   <h2>运行中的实例</h2>
   <div class="card"><table id="inst"></table></div>
@@ -228,6 +255,118 @@ async function refresh() {
 }
 refresh();
 setInterval(refresh, 15000);
+
+// ---------------------------------------------------------------- history
+let H = null;
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const hhmm = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+function renderHistory() {
+  if (!H) return;
+  if (S && S.limits) $("band-label").textContent = `有值得租的卡（利润率 ≥ ${pct(S.limits.min_margin)}）`;
+  const s = H.summary;
+  if (s.samples < 2) {
+    $("hist-verdict").textContent = "数据还不够，跑一会儿就有了。";
+    $("hist-tiles").innerHTML = "";
+  } else {
+    const share = s.observed_hours ? s.rentable_hours / s.observed_hours : 0;
+    $("hist-verdict").textContent = `已观察 ${s.observed_hours.toFixed(1)} 小时（电脑休眠不算）`;
+    $("hist-tiles").innerHTML = [
+      ["价格区间", `${usd(s.price_min, 3)} – ${usd(s.price_max, 3)}`, `平均 ${usd(s.price_avg, 3)}`],
+      ["值得租的时间", `${s.rentable_hours.toFixed(1)} 小时`, `占 ${(share * 100).toFixed(0)}%`],
+      ["最便宜的卡", s.cheapest_seen == null ? "—" : usd(s.cheapest_seen, 3) + "/h",
+        "最好利润率中位数 " + (s.median_best_margin == null ? "—" : pct(s.median_best_margin))],
+      ["模拟盈亏", pnl(s.sim_pnl), `${s.sim_rentals} 次租用 · 花费 ${usd(s.sim_cost)} · ${s.sim_prl.toFixed(3)} PRL`],
+    ].map(([l, v, sub]) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div><div class="sub">${sub}</div></div>`).join("");
+  }
+  drawChart(H.points);
+}
+
+function drawChart(pts) {
+  const svg = $("chart");
+  svg.textContent = "";
+  const W = svg.clientWidth || 600, Hh = 220, L = 48, R = 12, T = 10, B = 24;
+  svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
+  const vals = pts.flatMap(p => [p.price_live ? p.price : null, p.cheapest_breakeven]).filter(v => v != null);
+  if (pts.length < 2 || !vals.length) {
+    el("text", { x: W / 2, y: Hh / 2, "text-anchor": "middle" }, svg).textContent = "还没有历史数据";
+    return;
+  }
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo || hi * 0.1 || 1) * 0.08; lo = Math.max(0, lo - pad); hi += pad;
+  const t0 = pts[0].ts, t1 = pts[pts.length - 1].ts;
+  const x = t => L + (t - t0) / (t1 - t0 || 1) * (W - L - R);
+  const y = v => T + (hi - v) / (hi - lo) * (Hh - T - B);
+  const gapLimit = Math.max(600, (t1 - t0) / pts.length * 5);
+
+  // bands where something was worth renting
+  for (let i = 0; i < pts.length - 1; i++)
+    if (pts[i].rentable_n > 0 && pts[i + 1].ts - pts[i].ts < gapLimit)
+      el("rect", { x: x(pts[i].ts), y: T, width: Math.max(1, x(pts[i + 1].ts) - x(pts[i].ts)), height: Hh - T - B,
+        fill: "var(--band)" }, svg);
+  // grid + y labels
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4;
+    el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }, svg);
+    el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = "$" + v.toFixed(2);
+  }
+  const nx = Math.max(2, Math.min(6, Math.floor((W - L - R) / 90)));
+  for (let k = 0; k <= nx; k++) {
+    const t = t0 + (t1 - t0) * k / nx;
+    el("text", { x: x(t), y: Hh - 6, "text-anchor": k === 0 ? "start" : k === nx ? "end" : "middle" }, svg).textContent = hhmm(t);
+  }
+  const path = key => {
+    let d = "", prev = null;
+    for (const p of pts) {
+      const v = key === "price" ? (p.price_live ? p.price : null) : p[key];
+      if (v == null) { prev = null; continue; }
+      d += (prev && p.ts - prev.ts < gapLimit ? "L" : "M") + x(p.ts).toFixed(1) + "," + y(v).toFixed(1);
+      prev = p;
+    }
+    return d;
+  };
+  el("path", { d: path("cheapest_breakeven"), fill: "none", stroke: "var(--series-2)", "stroke-width": 2,
+    "stroke-dasharray": "5 4", "stroke-linejoin": "round" }, svg);
+  el("path", { d: path("price"), fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+
+  const cross = el("line", { y1: T, y2: Hh - B, stroke: "var(--ink-3)", "stroke-width": 1, visibility: "hidden" }, svg);
+  const dot = el("circle", { r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }, svg);
+  const tip = $("tip");
+  svg.onpointermove = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(x(p.ts) - px) < Math.abs(x(best.ts) - px)) best = p;
+    cross.setAttribute("x1", x(best.ts)); cross.setAttribute("x2", x(best.ts)); cross.setAttribute("visibility", "visible");
+    if (best.price_live && best.price != null) {
+      dot.setAttribute("cx", x(best.ts)); dot.setAttribute("cy", y(best.price)); dot.setAttribute("visibility", "visible");
+    } else dot.setAttribute("visibility", "hidden");
+    tip.textContent = "";
+    const line = (val, label) => { const d = document.createElement("div"); const b = document.createElement("b");
+      b.textContent = val; d.append(b, " " + label); tip.appendChild(d); };
+    const head = document.createElement("div"); head.className = "muted"; head.textContent = hhmm(best.ts); tip.appendChild(head);
+    line(best.price_live && best.price != null ? usd(best.price, 3) : "无实时价", "PRL 价格");
+    line(usd(best.cheapest_breakeven, 3), "保本价");
+    line(best.rentable_n ? best.rentable_n + " 个" : "没有", "值得租的卡");
+    tip.hidden = false;
+    const left = x(best.ts) / W * r.width;
+    tip.style.left = Math.min(Math.max(0, left + 12), r.width - tip.offsetWidth) + "px";
+    tip.style.top = "8px";
+  };
+  svg.onpointerleave = () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); };
+}
+
+async function refreshHistory() {
+  try { H = await (await fetch("/api/history")).json(); renderHistory(); } catch (e) {}
+}
+refreshHistory();
+setInterval(refreshHistory, 60000);
+window.addEventListener("resize", () => H && drawChart(H.points));
 </script>
 </body>
 </html>

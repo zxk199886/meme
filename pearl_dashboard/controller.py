@@ -10,7 +10,7 @@ from .sources import kryptex, runpod
 from .sources.price import get_prl_price
 from .sources.vast import VastClient
 from .sources.yield_ import get_prl_per_th_day
-from .strategy import decide, instance_age_min
+from .strategy import decide, instance_age_min, rent_eligible
 
 
 class Controller:
@@ -20,8 +20,7 @@ class Controller:
         self.store = store
         self.clock = clock
         self.fee = config_mod.total_fee(cfg)
-        key = cfg["vast"]["api_key"]
-        self.vast = VastClient(session, key, cfg["vast"]["base_url"]) if key else None
+        self.vast = VastClient(session, cfg["vast"]["api_key"], cfg["vast"]["base_url"])
         self.mode = "simulate"
         self.sim_instances = {}
         self._sim_ids = itertools.count(1)
@@ -40,7 +39,7 @@ class Controller:
         problems = []
         if self.cfg.get("dry_run", True):
             problems.append("config.yaml 里 dry_run 还是 true")
-        if not self.vast:
+        if not self.vast.has_key:
             problems.append("没有填 Vast API key")
         if not self.cfg["pool"].get("wallet"):
             problems.append("没有填钱包地址 pool.wallet")
@@ -107,7 +106,7 @@ class Controller:
             self.store.log("mode", "紧急停止：退掉所有实例并暂停")
             for inst in list(self.sim_instances.values()):
                 self.destroy(inst, "紧急停止")
-            if self.vast:
+            if self.vast.has_key:
                 for inst in self._managed(self.vast.list_instances()):
                     self.destroy(inst, "紧急停止")
 
@@ -115,7 +114,7 @@ class Controller:
         with self.lock:
             if instance_id in self.sim_instances:
                 return self.destroy(self.sim_instances[instance_id], "手动退租")
-            for inst in self._managed(self.vast.list_instances() if self.vast else []):
+            for inst in self._managed(self.vast.list_instances() if self.vast.has_key else []):
                 if str(inst["id"]) == str(instance_id):
                     return self.destroy(inst, "手动退租")
             raise ValueError("找不到这个实例")
@@ -151,24 +150,25 @@ class Controller:
 
         gpu_names = [g for g, h in cfg["gpus"].items() if h]
         offers, real, balance = [], None, None
-        if self.vast:
-            for name, fn in (("Vast 报价", lambda: self.vast.search_offers(gpu_names, lim["min_reliability"],
-                                                                          cfg["instance"]["disk_gb"])),
-                             ("Vast 实例", lambda: self._managed(self.vast.list_instances())),
-                             ("Vast 余额", self.vast.get_balance)):
-                try:
-                    value = fn()
-                except Exception as exc:
-                    errors[name] = f"{type(exc).__name__}: {exc}"
-                    continue
-                if name == "Vast 报价":
-                    offers = value
-                elif name == "Vast 实例":
-                    real = value
-                else:
-                    balance = value
+        calls = [("Vast 报价", lambda: self.vast.search_offers(gpu_names, lim["min_reliability"],
+                                                              cfg["instance"]["disk_gb"]))]
+        if self.vast.has_key:
+            calls += [("Vast 实例", lambda: self._managed(self.vast.list_instances())),
+                      ("Vast 余额", self.vast.get_balance)]
         else:
-            real = []
+            real = []  # no key: nothing of ours can be running
+        for name, fn in calls:
+            try:
+                value = fn()
+            except Exception as exc:
+                errors[name] = f"{type(exc).__name__}: {exc}"
+                continue
+            if name == "Vast 报价":
+                offers = value
+            elif name == "Vast 实例":
+                real = value
+            else:
+                balance = value
 
         display_offers = []
         if cfg["runpod"].get("api_key"):
@@ -200,6 +200,7 @@ class Controller:
                     self.store.log("destroy", f"实例 {r['id']} 已不存在")
 
         # A simulated rental keeps its offer off the market, like a real one would.
+        market = offers
         taken = {i["offer_id"] for i in self.sim_instances.values()}
         offers = [o for o in offers if o["id"] not in taken]
 
@@ -212,7 +213,7 @@ class Controller:
         decision = decide(now=now, cfg=cfg, mode=mode, price=price,
                           last_live_price_ts=self.last_live_price_ts or self.started, prl_per_th_day=yld["value"],
                           fee=self.fee, hashrates=hashrates, offers=offers, instances=instances,
-                          balance=balance if self.vast else None, pool_workers=pool_workers,
+                          balance=balance, pool_workers=pool_workers,
                           counters=self.counters)
         self.counters = decision["counters"]
 
@@ -240,8 +241,35 @@ class Controller:
             th = hashrates.get(inst["gpu"], 0) * inst["num_gpus"]
             self.store.accrue(inst["id"], now, inst["usd_per_hr"], th * yld["value"] * (1 - self.fee) / 86400)
 
+        self._snapshot(now, price, yld, hashrates, market)
         self._publish(now, price, yld, hashrate_info, hashrates, balance, pool, pool_workers,
                       current, decision["offers"], display_offers, errors)
+
+    def _snapshot(self, now, price, yld, hashrates, market):
+        """One row of history per cycle, for the 24h report and chart.
+
+        Uses the whole market, including offers our simulated rentals are holding.
+        """
+        lim = self.cfg["limits"]
+        offers = []
+        for o in market:
+            th = hashrates.get(o["gpu"], 0) * o["num_gpus"]
+            offers.append({**o, **evaluate(o["usd_per_hr"], th, yld["value"], price["price"], self.fee),
+                           "hashrate_th": th})
+        usable = [o for o in offers if o["rentable"] and o["hashrate_th"] > 0
+                  and (o.get("reliability") or 0) >= lim["min_reliability"]]
+        cheapest = min(usable, key=lambda o: o["usd_per_hr_per_gpu"], default=None)
+        margins = [o["margin"] for o in usable if o["margin"] is not None]
+        sim = self.store.totals(True)
+        self.store.add_snapshot({
+            "ts": now, "price": price["price"], "price_live": int(price["live"]),
+            "prl_per_th_day": yld["value"], "offers_n": len(offers),
+            "cheapest_usd_per_gpu": cheapest["usd_per_hr_per_gpu"] if cheapest else None,
+            "cheapest_breakeven": cheapest["breakeven_price"] if cheapest else None,
+            "best_margin": max(margins, default=None),
+            "rentable_n": sum(rent_eligible(o, lim) for o in offers) if price["live"] else 0,
+            "sim_running": len(self.sim_instances), "sim_cost": sim["cost"], "sim_prl": sim["prl_est"],
+        })
 
     def _publish(self, now, price, yld, hashrate_info, hashrates, balance, pool, pool_workers,
                  current, offers, display_offers, errors):
