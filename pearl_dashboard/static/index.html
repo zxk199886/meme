@@ -39,6 +39,15 @@ button:hover { border-color: var(--ink-3); }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 button.danger { color: var(--bad-ink); border-color: var(--bad); }
 button:disabled { opacity: .5; cursor: not-allowed; }
+button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+button.busy { opacity: .7; cursor: progress; }
+.status { margin-top: 4px; font-size: 13px; color: var(--ink-2); }
+.status b { color: var(--ink); font-weight: 600; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: calc(100vw - 32px);
+  background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 8px; font-size: 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25); z-index: 10; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#toast.show { opacity: 1; }
+#toast.err { background: var(--bad); color: #fff; }
 .notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); font-size: 13px; }
 .notice.warn { border-left: 4px solid var(--warn); }
@@ -100,6 +109,7 @@ input[type=number], select { font: inherit; padding: 4px 8px; border-radius: 6px
     <div>
       <h1>Pearl (PRL) 租卡挖矿</h1>
       <div class="sub" id="updated">加载中…</div>
+      <div class="status" id="activity" aria-live="polite"></div>
     </div>
     <div class="btns">
       <span class="badge" id="mode"></span>
@@ -144,6 +154,7 @@ input[type=number], select { font: inherit; padding: 4px 8px; border-radius: 6px
   <div class="card log" id="log"></div>
   <p class="sub">数字是估算，矿池实际到账才是准的。币价、难度随时在变。</p>
 </main>
+<div id="toast" role="status"></div>
 <dialog id="settings">
   <form method="dialog" id="set-form">
     <h3>设置</h3>
@@ -201,23 +212,77 @@ function econ(usdPerHr, th) {
     margin: rev == null || !cost ? null : (rev - cost) / cost, be: prlDay > 0 ? cost / prlDay : null };
 }
 
-async function post(path, body) {
-  const r = await fetch(path, { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" },
-    body: JSON.stringify(body || {}) });
-  const data = await r.json();
-  if (!r.ok) { alert(data.error || "失败"); return; }
-  S = data; render();
+let toastTimer = null;
+function toast(text, isError) {
+  const t = $("toast");
+  t.textContent = text;
+  t.className = "show" + (isError ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = isError ? "err" : ""; }, isError ? 7000 : 4500);
 }
 
-$("btn-sim").onclick = () => post("/api/mode", { mode: "simulate" });
-$("btn-pause").onclick = () => post("/api/mode", { mode: "halted" });
-$("btn-live").onclick = () => {
+// After a click the server answers at once and runs a fresh cycle in the background;
+// poll quickly until that cycle's data arrives, then report what it found.
+let waitingSince = null, fastPoll = null;
+function awaitFreshCycle(since) {
+  // `since` is taken before the request: the server may start the new cycle before it replies.
+  waitingSince = since ?? Date.now() / 1000;
+  clearInterval(fastPoll);
+  fastPoll = setInterval(async () => {
+    await refresh();
+    const done = S && S.now > waitingSince;
+    if (done || Date.now() / 1000 - waitingSince > 90) {
+      clearInterval(fastPoll);
+      if (done) toast("已用最新数据检查了一遍：" + (S.activity || "完成"));
+      waitingSince = null;
+      renderStatus();
+    }
+  }, 2000);
+  renderStatus();
+}
+
+async function post(path, body, btn) {
+  const label = btn ? btn.textContent : null;
+  const clickedAt = Date.now() / 1000;
+  if (btn) { btn.disabled = true; btn.classList.add("busy"); btn.textContent = "处理中…"; }
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}) });
+    const data = await r.json();
+    if (!r.ok) { toast(data.error || "操作失败", true); return; }
+    if (data.state && data.state.price) S = data.state;
+    toast(data.message || "已完成");
+    awaitFreshCycle(clickedAt);
+  } catch (e) {
+    toast("操作失败：" + e.message, true);
+  } finally {
+    if (btn) { btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false; }
+    render();
+  }
+}
+
+$("btn-sim").onclick = e => post("/api/mode", { mode: "simulate" }, e.currentTarget);
+$("btn-pause").onclick = e => post("/api/mode", { mode: "halted" }, e.currentTarget);
+$("btn-live").onclick = e => {
   const l = S.limits;
-  if (confirm(`确认开始真租？会花 Vast 账户里的真钱。\n\n上限：最多 ${l.max_gpus} 张卡，单卡 ≤ $${l.max_usd_per_hr_per_gpu}/h，` +
+  if (S.mode === "live" || confirm(`确认开始真租？会花 Vast 账户里的真钱。\n\n上限：最多 ${l.max_gpus} 张卡，单卡 ≤ $${l.max_usd_per_hr_per_gpu}/h，` +
       `合计 ≤ $${l.max_hourly_spend}/h，余额低于 $${l.min_balance_reserve} 全部退租。`))
-    post("/api/mode", { mode: "live" });
+    post("/api/mode", { mode: "live" }, e.currentTarget);
 };
-$("btn-stop").onclick = () => { if (confirm("退掉所有 pearl- 实例并暂停？")) post("/api/stop_all"); };
+$("btn-stop").onclick = e => { if (confirm("退掉所有 pearl- 实例并暂停？")) post("/api/stop_all", {}, e.currentTarget); };
+
+function renderStatus() {
+  if (!S || !S.price) return;
+  const names = { live: "真租中", simulate: "模拟中", halted: "已暂停" };
+  if (waitingSince) {  // the last activity text is from before the click: don't show it
+    $("activity").innerHTML = `<b>${names[S.mode]}</b> · 正在用最新数据检查…`;
+    return;
+  }
+  const left = Math.max(0, Math.round((S.next_cycle_at || 0) - Date.now() / 1000));
+  const tail = left > 0 ? `下次检查 ${left} 秒后` : "正在检查…";
+  $("activity").innerHTML = `<b>${names[S.mode]}</b> · ${esc(S.activity || "等待第一次数据")} · ${tail}`;
+}
+setInterval(renderStatus, 1000);
 $("wi-price").oninput = e => { whatIfPrice = e.target.value === "" ? null : parseFloat(e.target.value); render(); };
 $("wi-diff").oninput = render;
 $("wi-reset").onclick = () => { whatIfPrice = null; $("wi-price").value = ""; $("wi-diff").value = 1; render(); };
@@ -228,7 +293,10 @@ function render() {
   const modes = { live: ["真租中", "var(--good)"], simulate: ["模拟（不花钱）", "var(--warn)"], halted: ["已暂停", "var(--ink-3)"] };
   const [mtext, mcolor] = modes[S.mode];
   $("mode").innerHTML = `<span class="dot" style="background:${mcolor}"></span>${mtext}`;
-  $("btn-live").disabled = S.mode === "live" || S.live_blockers.length > 0;
+  $("btn-live").disabled = S.mode !== "live" && S.live_blockers.length > 0;
+  for (const [id, m] of [["btn-sim", "simulate"], ["btn-pause", "halted"], ["btn-live", "live"]])
+    $(id).setAttribute("aria-pressed", S.mode === m ? "true" : "false");
+  renderStatus();
   $("updated").textContent = `更新于 ${ago(S.now)} · 每 ${S.loop_seconds} 秒刷新`;
   if (!$("wi-price").placeholder || whatIfPrice == null) $("wi-price").placeholder = S.price.price?.toFixed(3) ?? "";
 
@@ -341,6 +409,7 @@ $("set-form").onsubmit = async e => {
   e.preventDefault();
   $("set-save").disabled = true;
   $("set-error").textContent = "";
+  const clickedAt = Date.now() / 1000;
   try {
     const r = await fetch("/api/settings", { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -351,8 +420,8 @@ $("set-form").onsubmit = async e => {
     const data = await r.json();
     if (!r.ok) { $("set-error").textContent = data.error || "保存失败"; return; }
     $("settings").close();
-    $("updated").textContent = "设置已保存，正在用新设置拉数据…";
-    setTimeout(refresh, 3000);
+    toast("设置已保存，正在用新设置拉数据…");
+    awaitFreshCycle(clickedAt);
   } catch (err) {
     $("set-error").textContent = "保存失败：" + err.message;
   } finally {

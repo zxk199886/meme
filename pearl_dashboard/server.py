@@ -11,7 +11,6 @@ import re
 import secrets
 import sys
 import threading
-import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -76,22 +75,27 @@ def make_handler(ctrl, port):
                 return self._json(403, {"error": "bad token"})
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
+            # Answer right away; the background loop picks up the change on its next
+            # cycle, which request_cycle() starts immediately.
             try:
                 if self.path == "/api/mode":
-                    ctrl.set_mode(body.get("mode"))
+                    message = ctrl.set_mode(body.get("mode"))
                 elif self.path == "/api/stop_all":
                     ctrl.stop_all()
+                    message = "已退掉所有实例并暂停"
                 elif self.path == "/api/destroy":
                     ctrl.destroy_one(body.get("id"))
+                    message = f"已退租 {body.get('id')}"
                 elif self.path == "/api/settings":
                     apply_settings(ctrl, body)
-                    # Fetching with the new settings can take a while; don't hold the request.
-                    threading.Thread(target=ctrl.cycle, daemon=True).start()
+                    ctrl.request_cycle()
                     return self._json(200, settings_view(ctrl))
-                elif self.path != "/api/refresh":
+                elif self.path == "/api/refresh":
+                    message = "正在用最新数据检查…"
+                else:
                     return self._json(404, {"error": "not found"})
-                ctrl.cycle()
-                self._json(200, ctrl.state)
+                ctrl.request_cycle()
+                self._json(200, {"state": ctrl.state, "message": message})
             except Exception as exc:
                 self._json(400, {"error": str(exc)})
 
@@ -187,7 +191,9 @@ def loop(ctrl, seconds, on_tick=None):
             ctrl.last_error = traceback.format_exc(limit=3)
             ctrl.store.log("error", "控制循环出错：" + ctrl.last_error)
             print("控制循环出错：\n" + ctrl.last_error, file=sys.stderr)
-        time.sleep(seconds)
+        # Sleep until the next tick, or until a button click asks for a cycle now.
+        ctrl.wake.wait(seconds)
+        ctrl.wake.clear()
 
 
 def keep_awake():
