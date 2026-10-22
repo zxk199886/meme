@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import traceback
 import urllib.request
@@ -160,9 +161,12 @@ def launcher_vbs(python_exe=None, path_env=None):
         f"sh.CurrentDirectory = {_vbs_str(REPO)}",
         "On Error Resume Next",
         f"Set ex = sh.Exec({_vbs_str(f'{_vbs_q(pyw)} -m pearl_dashboard.desktop')})",
+        # No "_" line continuations anywhere: a stray line ending would break them.
         "If Err.Number <> 0 Then",
-        f'  MsgBox "Pearl 启动失败：找不到 Python" & vbCrLf & {_vbs_str(pyw)} & vbCrLf & vbCrLf & Err.Description _',
-        f'    & vbCrLf & vbCrLf & "在 PowerShell 里重新运行：python -m pearl_dashboard.desktop --install-shortcut", vbExclamation, {_vbs_str(TITLE)}',
+        '  msg = "Pearl 启动失败：找不到 Python" & vbCrLf',
+        f"  msg = msg & {_vbs_str(pyw)} & vbCrLf & vbCrLf & Err.Description & vbCrLf & vbCrLf",
+        '  msg = msg & "在 PowerShell 里重新运行：python -m pearl_dashboard.desktop --install-shortcut"',
+        f"  MsgBox msg, vbExclamation, {_vbs_str(TITLE)}",
         "  WScript.Quit 1",
         "End If",
         "On Error GoTo 0",
@@ -171,8 +175,9 @@ def launcher_vbs(python_exe=None, path_env=None):
         "If code <> 0 And code <> 3 Then",
         "  msg = ex.StdErr.ReadAll",
         "  If Len(msg) > 1500 Then msg = Right(msg, 1500)",
-        '  MsgBox "Pearl 启动失败（退出码 " & code & "）" & vbCrLf & vbCrLf & msg & vbCrLf _',
-        f'    & "完整日志：" & {_vbs_str(LOG)} & vbCrLf & "把这段文字或日志发给 Claude。", vbExclamation, {_vbs_str(TITLE)}',
+        '  msg = "Pearl 启动失败（退出码 " & code & "）" & vbCrLf & vbCrLf & msg & vbCrLf',
+        f'  msg = msg & "完整日志：" & {_vbs_str(LOG)} & vbCrLf & "把这段文字或日志发给 Claude。"',
+        f"  MsgBox msg, vbExclamation, {_vbs_str(TITLE)}",
         "End If",
         "",
     ])
@@ -185,7 +190,8 @@ def _vbs_q(path):
 
 def write_launcher(python_exe=None, path_env=None):
     # UTF-16 with BOM: the only Unicode encoding wscript reads, needed for non-ASCII paths.
-    LAUNCHER.write_text(launcher_vbs(python_exe, path_env), encoding="utf-16")
+    # Written as bytes: text mode on Windows would turn "\r\n" into "\r\r\n".
+    LAUNCHER.write_bytes(launcher_vbs(python_exe, path_env).encode("utf-16"))
     return LAUNCHER
 
 
@@ -208,9 +214,46 @@ def shortcut_script():
     ])
 
 
+MOVE_STEPS = """请把代码放到你自己的用户文件夹。打开普通的 PowerShell（不要用管理员），运行：
+
+    cd $HOME
+    git clone https://github.com/zxk199886/meme.git
+    cd meme
+    git checkout claude/eager-keller-wp51iz
+    pip install -r pearl_dashboard\\requirements.txt
+    python -m pearl_dashboard.desktop --install-shortcut
+
+想保留模拟数据：把旧目录里的 pearl_dashboard\\pearl.sqlite3 复制到新目录的 pearl_dashboard 里。"""
+
+
+def _under(path, root):
+    norm = lambda x: str(x).replace("/", "\\").rstrip("\\").lower() + "\\"  # noqa: E731
+    return norm(path).startswith(norm(root))
+
+
+def location_problem(repo=None, env=None):
+    """Why a double-click launch can't work from where the code lives, or None."""
+    repo = Path(repo or REPO)
+    env = os.environ if env is None else env
+    for key in ("SystemRoot", "WINDIR", "ProgramFiles", "ProgramFiles(x86)"):
+        root = env.get(key)
+        if root and _under(repo, root):
+            return f"代码放在了系统目录 {repo}。双击运行时没有管理员权限，写不了日志和数据。"
+    try:
+        with tempfile.TemporaryFile(dir=repo / "pearl_dashboard"):
+            pass
+    except OSError:
+        return f"没有权限写入 {repo / 'pearl_dashboard'}。"
+    return None
+
+
 def install_shortcut():
     if sys.platform != "win32":
         print("桌面快捷方式只支持 Windows。其它系统请运行：python -m pearl_dashboard.desktop")
+        return 1
+    problem = location_problem()
+    if problem:
+        print(f"没有创建快捷方式：{problem}\n\n{MOVE_STEPS}")
         return 1
     write_launcher()
     r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", shortcut_script()],

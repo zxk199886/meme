@@ -107,6 +107,42 @@ class HelpersTest(unittest.TestCase):
             vbs = desktop.launcher_vbs("/opt/py/python.exe", "")
         self.assertIn('""/opt/py/python.exe""', vbs)
 
+    def test_launcher_on_disk_has_clean_line_endings(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(desktop, "LAUNCHER", Path(tmp) / "launch.vbs"):
+            text = desktop.write_launcher("/opt/py/python.exe", "C:\\x;" * 500).read_bytes().decode("utf-16")
+        self.assertNotIn("\r\r", text)  # what Windows text mode produced and broke line 43
+        self.assertEqual(text.count("\r\n"), text.count("\n"))
+        lines = text.split("\r\n")
+        self.assertFalse([line for line in lines if line.rstrip().endswith(" _")])
+        # structural sanity in place of a VBScript parser
+        blocks = [line.strip() for line in lines]
+        self.assertEqual(sum(b.startswith("If ") and b.endswith("Then") for b in blocks),
+                         sum(b == "End If" for b in blocks))
+        self.assertEqual(sum(b.startswith("Do While") for b in blocks), sum(b.endswith("Loop") for b in blocks))
+
+    def test_refuses_system_directory(self):
+        out = []
+        with mock.patch.object(sys, "platform", "win32"), \
+                mock.patch.object(desktop, "REPO", Path(r"C:\Windows\System32\meme")), \
+                mock.patch.dict("os.environ", {"SystemRoot": r"C:\WINDOWS"}), \
+                mock.patch.object(desktop.subprocess, "run") as run, \
+                mock.patch.object(desktop, "write_launcher") as wl, \
+                mock.patch("builtins.print", side_effect=lambda *a, **k: out.append(" ".join(map(str, a)))):
+            self.assertEqual(desktop.install_shortcut(), 1)
+        run.assert_not_called()
+        wl.assert_not_called()
+        self.assertIn("系统目录", out[0])
+        self.assertIn("cd $HOME", out[0])
+
+    def test_refuses_unwritable_directory(self):
+        with mock.patch.object(desktop.tempfile, "TemporaryFile", side_effect=PermissionError("denied")):
+            problem = desktop.location_problem(Path("/home/u/meme"), {})
+        self.assertIn("没有权限写入", problem)
+
+    def test_accepts_user_folder(self):
+        self.assertIsNone(desktop.location_problem(desktop.REPO, {"SystemRoot": r"C:\Windows"}))
+
     def test_launcher_file_is_utf16_with_bom(self):
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(desktop, "LAUNCHER", Path(tmp) / "launch.vbs"):

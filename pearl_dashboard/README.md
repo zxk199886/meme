@@ -15,10 +15,14 @@
 
 ## 桌面版（Windows，推荐）
 
-第一次在 PowerShell 里运行（`meme` 文件夹下）：
+第一次：打开**普通的 PowerShell（不要用管理员）**，代码要放在自己的用户文件夹里，
+不要放在 `C:\Windows\System32`（管理员 PowerShell 默认在那里，双击运行时没权限写文件）：
 
 ```powershell
-git pull
+cd $HOME
+git clone https://github.com/zxk199886/meme.git
+cd meme
+git checkout claude/eager-keller-wp51iz
 pip install -r pearl_dashboard\requirements.txt
 python -m pearl_dashboard.desktop --install-shortcut
 ```
