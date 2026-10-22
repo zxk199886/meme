@@ -25,8 +25,12 @@ python -m pearl_dashboard.desktop --install-shortcut
 
 之后双击桌面上的 **「Pearl 挖矿」** 就会打开一个独立窗口，没有黑色命令行窗口。关掉窗口程序就退出。
 
+> 更新代码后、或换了 Python / 移动了 `meme` 文件夹后，请**重新运行一次** `--install-shortcut`。
+> 快捷方式会用你运行这条命令时的那个 Python 和环境（Anaconda 也可以）。
+
 - 想先看效果：`python -m pearl_dashboard.desktop --mock`（假数据演示）。
-- 打不开或闪退：会弹窗说明原因，完整日志在 `pearl_dashboard\desktop.log`，发给 Claude。
+- 打不开或闪退：会弹窗显示报错，完整日志在 `pearl_dashboard\desktop.log`，把弹窗文字或日志发给 Claude。
+  在 PowerShell 里运行 `python -m pearl_dashboard.desktop` 也能直接看到报错。
 - 如果桌面窗口组件装不上，会自动改用 Edge 的应用窗口打开，并多一个带「退出」按钮的小窗口。
 - 已经开着时再双击，不会启动第二份，只是再打开一个窗口。
 - 更新代码：关掉窗口 → `git pull` → 再双击。

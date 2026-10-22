@@ -137,8 +137,7 @@ def build(config_path=None, mock=False):
         cfg["pool"].update(wallet="mockwallet", stats_url="https://kryptex.mock/{wallet}")
         cfg["dry_run"] = False
         cfg["loop_seconds"] = 5
-        db = HERE / "pearl-mock.sqlite3"
-        db.unlink(missing_ok=True)
+        db = ":memory:"  # demo data is throwaway, and several demos can run side by side
     else:
         session = requests.Session()
         db = HERE / "pearl.sqlite3"
