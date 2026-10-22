@@ -13,6 +13,25 @@
 > ⚠️ 这是用真钱做的高风险操作。币价一天能跌 10%+，难度会随币价上涨而上升，
 > 所有收益数字都是估算。最大损失 = 你 Vast 账户里的余额。我不是理财顾问。
 
+## 桌面版（Windows，推荐）
+
+第一次在 PowerShell 里运行（`meme` 文件夹下）：
+
+```powershell
+git pull
+pip install -r pearl_dashboard\requirements.txt
+python -m pearl_dashboard.desktop --install-shortcut
+```
+
+之后双击桌面上的 **「Pearl 挖矿」** 就会打开一个独立窗口，没有黑色命令行窗口。关掉窗口程序就退出。
+
+- 想先看效果：`python -m pearl_dashboard.desktop --mock`（假数据演示）。
+- 打不开或闪退：会弹窗说明原因，完整日志在 `pearl_dashboard\desktop.log`，发给 Claude。
+- 如果桌面窗口组件装不上，会自动改用 Edge 的应用窗口打开，并多一个带「退出」按钮的小窗口。
+- 已经开着时再双击，不会启动第二份，只是再打开一个窗口。
+- 更新代码：关掉窗口 → `git pull` → 再双击。
+- 运行期间会阻止电脑休眠，笔记本请插电、别合盖。
+
 ## 模拟一天（不需要任何账号，不花钱）
 
 需要 Python 3.9+ 和 Git。
@@ -141,6 +160,7 @@ $env:MOCK=1; python -m pearl_dashboard.server      # Windows PowerShell
 
 ```
 server.py        网页 + 控制循环入口
+desktop.py       桌面窗口和桌面快捷方式
 check.py         数据源自检
 report.py        过去 N 小时的模拟报告
 controller.py    每个循环：拉数据 → 决策 → 执行 → 记账

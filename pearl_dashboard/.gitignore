@@ -1,3 +1,4 @@
 config.yaml
 *.sqlite3
 __pycache__/
+desktop.log

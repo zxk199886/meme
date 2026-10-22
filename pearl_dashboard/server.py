@@ -124,12 +124,13 @@ def keep_awake():
     return bool(ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED))
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Pearl 租卡挖矿控制器")
-    ap.add_argument("--config", help="配置文件路径（默认 pearl_dashboard/config.yaml）")
-    args = ap.parse_args()
-    cfg = config_mod.load(args.config)
-    mock = os.environ.get("MOCK") == "1"
+def build(config_path=None, mock=False):
+    """Create the controller, start its loop thread and bind the HTTP server.
+
+    Returns (ctrl, httpd, url). The caller runs httpd.serve_forever().
+    If the configured port is taken, a free one is used instead.
+    """
+    cfg = config_mod.load(config_path)
     if mock:
         session = FakeSession(price=2.4)
         cfg["vast"]["api_key"] = "mock"
@@ -149,15 +150,28 @@ def main():
     # even when a data source is slow or blocked.
     threading.Thread(target=loop, args=(ctrl, cfg["loop_seconds"], session.wiggle if mock else None),
                      daemon=True).start()
-    port = int(cfg["listen_port"])
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(ctrl, port))
-    print(f"面板: http://127.0.0.1:{port}   模式: {'模拟数据 MOCK' if mock else '真实数据'}")
+    try:
+        httpd = ThreadingHTTPServer(("127.0.0.1", int(cfg["listen_port"])), None)
+    except OSError:
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), None)
+    port = httpd.server_address[1]
+    httpd.RequestHandlerClass = make_handler(ctrl, port)
+    return ctrl, httpd, f"http://127.0.0.1:{port}/"
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Pearl 租卡挖矿控制器")
+    ap.add_argument("--config", help="配置文件路径（默认 pearl_dashboard/config.yaml）")
+    args = ap.parse_args()
+    mock = os.environ.get("MOCK") == "1"
+    ctrl, httpd, url = build(args.config, mock)
+    print(f"面板: {url}   模式: {'模拟数据 MOCK' if mock else '真实数据'}")
     if keep_awake():
         print("已阻止电脑休眠（关闭这个窗口即恢复）。笔记本请插电，别合盖。")
     if ctrl.live_blockers():
         print("真租未解锁：" + "；".join(ctrl.live_blockers()))
     try:
-        server.serve_forever()
+        httpd.serve_forever()
     except KeyboardInterrupt:
         print("\n已退出。注意：已经租的实例不会因为关掉面板而停止，"
               "它们会在最长寿命到期时自毁；想立即停止请运行 python -m pearl_dashboard.stop_all")

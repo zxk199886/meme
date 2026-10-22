@@ -1,2 +1,4 @@
 requests>=2.31
 PyYAML>=6.0
+# 桌面窗口（Windows）。装不上也没关系，桌面版会改用 Edge 应用窗口。
+pywebview>=5.0; sys_platform == "win32"
