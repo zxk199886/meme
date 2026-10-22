@@ -1,4 +1,5 @@
 """Minimal Vast.ai REST client (endpoints as used by the official vast-ai/vast-cli)."""
+import math
 from pathlib import Path
 
 TIMEOUT = 30
@@ -33,7 +34,8 @@ class VastClient:
         if r.status_code in (401, 403) and not self.has_key:
             raise RuntimeError("Vast 要求 API key 才能看报价：注册后把 key 填进 config.yaml 的 vast.api_key")
         r.raise_for_status()
-        return [normalize_offer(o) for o in r.json().get("offers", [])]
+        offers = [normalize_offer(o) for o in r.json().get("offers", [])]
+        return [o for o in offers if o["usd_per_hr"] is not None and o["usd_per_hr"] > 0]
 
     def list_instances(self):
         rows, params = [], {"limit": 25}
@@ -75,17 +77,26 @@ class VastClient:
         return float(r.json().get("credit") or 0)
 
 
+def _num(x):
+    """Float or None; Vast sometimes sends NaN, which would break the page's JSON."""
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
 def normalize_offer(o):
-    num = int(o.get("num_gpus") or 1)
-    dph = float(o["dph_total"])
+    num = int(_num(o.get("num_gpus")) or 1)
+    dph = _num(o.get("dph_total"))
     return {
         "platform": "Vast.ai",
         "id": o["id"],
         "gpu": o.get("gpu_name"),
         "num_gpus": num,
         "usd_per_hr": dph,
-        "usd_per_hr_per_gpu": dph / num,
-        "reliability": o.get("reliability2", o.get("reliability")),
+        "usd_per_hr_per_gpu": dph / num if dph is not None else None,
+        "reliability": _num(o.get("reliability2", o.get("reliability"))),
         "location": o.get("geolocation"),
         "rentable": True,
     }

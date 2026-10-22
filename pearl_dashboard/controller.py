@@ -21,6 +21,7 @@ class Controller:
         self.clock = clock
         self.fee = config_mod.total_fee(cfg)
         self.vast = VastClient(session, cfg["vast"]["api_key"], cfg["vast"]["base_url"])
+        self.mock = False  # demo mode: settings can't be saved
         self.mode = "simulate"
         self.sim_instances = {}
         self._sim_ids = itertools.count(1)
@@ -57,6 +58,14 @@ class Controller:
                 for inst in list(self.sim_instances.values()):
                     self.destroy(inst, "切换到真租")
             self.store.log("mode", {"live": "开始真租", "simulate": "切换到模拟", "halted": "已暂停"}[mode])
+
+    def reload(self, cfg):
+        """Swap in a freshly loaded config (after the settings page saved it)."""
+        with self.lock:
+            self.cfg = cfg
+            self.fee = config_mod.total_fee(cfg)
+            self.vast = VastClient(self.session, cfg["vast"]["api_key"], cfg["vast"]["base_url"])
+            self.store.log("mode", "设置已更新")
 
     # --------------------------------------------------------------- actions
     def _managed(self, instances):
@@ -143,6 +152,10 @@ class Controller:
 
         price = get_prl_price(self.session, cfg)
         errors.update({f"币价 {k}": v for k, v in price["errors"].items()})
+        if (not price["live"] and price["price"] is not None and self.mode == "simulate"
+                and cfg["price"].get("manual_in_simulation")):
+            # Simulation only: let the manual price drive it. Live renting never sees this.
+            price = {**price, "live": True, "source": "手动价格（仅模拟）", "manual": True}
         if price["live"]:
             self.last_live_price_ts = now
         yld = get_prl_per_th_day(self.session, cfg)
@@ -311,7 +324,9 @@ class Controller:
         reserve = self.cfg["limits"]["min_balance_reserve"]
         self.state = {
             "now": now, "mode": self.mode, "live_blockers": self.live_blockers(),
-            "price": {k: price[k] for k in ("price", "source", "live", "volume")},
+            "price": {**{k: price[k] for k in ("price", "source", "live", "volume")},
+                      "manual": bool(price.get("manual"))},
+            "vast_key_set": self.vast.has_key,
             "last_live_price_ts": self.last_live_price_ts,
             "yield": {"value": yld["value"], "source": yld["source"]}, "fee": self.fee,
             "hashrates": hashrate_info,

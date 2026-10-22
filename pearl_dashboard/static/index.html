@@ -43,6 +43,22 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   background: var(--surface); font-size: 13px; }
 .notice.warn { border-left: 4px solid var(--warn); }
 .notice.err { border-left: 4px solid var(--bad); }
+.tile a, .notice a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--ink);
+  padding: 0; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog::backdrop { background: rgba(0, 0, 0, .35); }
+dialog form { padding: 18px 20px; }
+dialog h3 { margin: 0 0 4px; font-size: 16px; }
+dialog fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 14px 0 0; padding: 10px 12px 12px; }
+dialog legend { padding: 0 6px; color: var(--ink-2); font-size: 13px; }
+.field { display: grid; gap: 4px; margin-top: 10px; }
+.field > span { font-size: 13px; color: var(--ink-2); }
+.field input[type=text], .field input[type=password], .field input[type=number] { width: 100%; }
+.field input { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--ink); }
+.check { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+#set-error { color: var(--bad-ink); font-size: 13px; margin-top: 10px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 16px; }
 .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .tile .label { color: var(--ink-2); font-size: 12px; }
@@ -91,6 +107,7 @@ input[type=number], select { font: inherit; padding: 4px 8px; border-radius: 6px
       <button id="btn-live" class="primary">确认开始真租</button>
       <button id="btn-pause">暂停租新卡</button>
       <button id="btn-stop" class="danger">紧急停止并全部退租</button>
+      <button id="btn-settings">设置</button>
     </div>
   </header>
   <div id="notices"></div>
@@ -127,6 +144,37 @@ input[type=number], select { font: inherit; padding: 4px 8px; border-radius: 6px
   <div class="card log" id="log"></div>
   <p class="sub">数字是估算，矿池实际到账才是准的。币价、难度随时在变。</p>
 </main>
+<dialog id="settings">
+  <form method="dialog" id="set-form">
+    <h3>设置</h3>
+    <div class="sub" id="set-path"></div>
+    <fieldset>
+      <legend>PRL 价格</legend>
+      <label class="field"><span>SafeTrade 交易对（默认 prlusdt）</span>
+        <input type="text" id="set-market" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>CoinGecko 币 id（备用价格源，可空；别填成同名的 Perle）</span>
+        <input type="text" id="set-coingecko" autocomplete="off" spellcheck="false" placeholder="例如 pearl"></label>
+      <label class="field"><span>手动价格（美元，可空）</span>
+        <input type="number" id="set-manual" step="0.0001" min="0" placeholder="例如 2.00"></label>
+      <label class="check"><input type="checkbox" id="set-manual-sim">
+        <span>拿不到实时价格时，模拟模式用手动价格继续算（真租永远不用手动价格）</span></label>
+    </fieldset>
+    <fieldset>
+      <legend>Vast.ai 账户</legend>
+      <label class="field"><span>API key（看余额、真租需要；只查报价可以不填）</span>
+        <input type="password" id="set-key" autocomplete="off" spellcheck="false"></label>
+      <label class="check" id="set-clear-row"><input type="checkbox" id="set-clear"><span>清除已保存的 key</span></label>
+      <div class="sub">在 cloud.vast.ai → Account → API Keys 创建。只存在你电脑的 config.yaml 里。</div>
+      <label class="field"><span>PRL 钱包地址（真租才需要）</span>
+        <input type="text" id="set-wallet" autocomplete="off" spellcheck="false"></label>
+    </fieldset>
+    <div id="set-error"></div>
+    <div class="dlg-actions">
+      <button type="button" id="set-cancel">取消</button>
+      <button type="submit" class="primary" id="set-save">保存</button>
+    </div>
+  </form>
+</dialog>
 <script>
 const TOKEN = "__TOKEN__";
 let S = null, whatIfPrice = null;
@@ -199,8 +247,10 @@ function render() {
   const h = S.hashrates["RTX 5090"];
   $("tiles").innerHTML = [
     ["PRL 价格", S.price.price == null ? "—" : "$" + S.price.price.toFixed(3),
-      `${esc(S.price.source || "无")} · ${S.price.live ? "实时" : "非实时"}`],
-    ["Vast 余额", usd(S.balance), S.runway_days == null ? "当前没有花费" : `按当前花费还能撑 ${S.runway_days.toFixed(1)} 天`],
+      (S.price.manual ? "手动价格，仅用于模拟" : `${esc(S.price.source || "无")} · ${S.price.live ? "实时" : "非实时"}`)
+        + " · <a data-settings>设置</a>"],
+    ["Vast 余额", usd(S.balance), (S.balance == null ? (S.vast_key_set ? "拿不到余额（见上方报错）" : "没填 API key") : S.runway_days == null ? "当前没有花费"
+      : `按当前花费还能撑 ${S.runway_days.toFixed(1)} 天`) + " · <a data-settings>设置</a>"],
     ["运行中", `${live.length + sim.length} 台`, `真实 ${live.length} · 模拟 ${sim.length} · 实际花费 ${usd(S.hourly_spend, 3)}/h`],
     [`${label}累计盈亏（估）`, pnl(T.pnl_est), `花费 ${usd(T.cost)} · 预计挖到 ${T.prl_est.toFixed(3)} PRL`],
     ["矿池实际盈亏", poolPnl == null ? "—" : pnl(poolPnl),
@@ -260,10 +310,55 @@ async function refresh() {
     }
     S = data; render();
   }
-  catch (e) { $("updated").textContent = "连不上控制器，是不是关掉了？"; }
+  catch (e) { $("updated").textContent = `连不上控制器（${e.message}），15 秒后重试`; }
 }
 refresh();
 setInterval(refresh, 15000);
+
+// ---------------------------------------------------------------- settings
+async function openSettings() {
+  $("set-error").textContent = "";
+  let v;
+  try { v = await (await fetch("/api/settings")).json(); } catch (e) { alert("读取设置失败：" + e.message); return; }
+  $("set-path").textContent = v.mock ? "演示模式（假数据）不能保存设置" : "保存到 " + (v.config_path || "config.yaml");
+  $("set-market").value = v.price.safetrade_market || "";
+  $("set-coingecko").value = v.price.coingecko_id || "";
+  $("set-manual").value = v.price.manual_usd ?? "";
+  $("set-manual-sim").checked = !!v.price.manual_in_simulation;
+  $("set-key").value = "";
+  $("set-key").placeholder = v.vast_key_set ? `已设置（…${v.vast_key_hint}），留空不改` : "未设置";
+  $("set-clear").checked = false;
+  $("set-clear-row").hidden = !v.vast_key_set;
+  $("set-wallet").value = v.wallet || "";
+  $("set-save").disabled = v.mock;
+  if (v.vast_key_from_env) $("set-error").textContent = "注意：环境变量 VAST_API_KEY 已设置，它会覆盖这里保存的 key。";
+  $("settings").showModal();
+}
+$("btn-settings").onclick = openSettings;
+document.addEventListener("click", e => { if (e.target.closest("[data-settings]")) openSettings(); });
+$("set-cancel").onclick = () => $("settings").close();
+$("set-form").onsubmit = async e => {
+  e.preventDefault();
+  $("set-save").disabled = true;
+  $("set-error").textContent = "";
+  try {
+    const r = await fetch("/api/settings", { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        price: { safetrade_market: $("set-market").value, coingecko_id: $("set-coingecko").value,
+                 manual_usd: $("set-manual").value, manual_in_simulation: $("set-manual-sim").checked },
+        vast_api_key: $("set-key").value, clear_vast_key: $("set-clear").checked, wallet: $("set-wallet").value,
+      }) });
+    const data = await r.json();
+    if (!r.ok) { $("set-error").textContent = data.error || "保存失败"; return; }
+    $("settings").close();
+    $("updated").textContent = "设置已保存，正在用新设置拉数据…";
+    setTimeout(refresh, 3000);
+  } catch (err) {
+    $("set-error").textContent = "保存失败：" + err.message;
+  } finally {
+    $("set-save").disabled = false;
+  }
+};
 
 // ---------------------------------------------------------------- history
 let H = null;

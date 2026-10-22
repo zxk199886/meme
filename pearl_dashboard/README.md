@@ -39,6 +39,8 @@ python -m pearl_dashboard.desktop --install-shortcut
 - 已经开着时再双击，不会启动第二份，只是再打开一个窗口。
 - 更新代码：关掉窗口 → `git pull` → 再双击。
 - 运行期间会阻止电脑休眠，笔记本请插电、别合盖。
+- 右上角 **「设置」**（或价格、余额卡片里的「设置」链接）可以改：SafeTrade 交易对、CoinGecko 备用价格源、
+  手动价格（可选“拿不到实时价时用它模拟”，真租永远不用）、Vast API key、钱包地址。保存后立即生效，写入 `config.yaml`。
 
 ## 模拟一天（不需要任何账号，不花钱）
 

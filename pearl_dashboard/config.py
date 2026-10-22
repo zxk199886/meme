@@ -34,3 +34,16 @@ def load(path=None):
 def total_fee(cfg):
     """Combined pool + miner dev fee as a fraction of gross output."""
     return 1 - (1 - float(cfg["pool"]["fee"])) * (1 - float(cfg["instance"]["miner_fee"]))
+
+
+def save(updates, path=None):
+    """Merge `updates` into config.yaml, keeping every other setting already there.
+
+    config.yaml only needs the values that differ from config.example.yaml.
+    Note: comments in an existing config.yaml are not preserved.
+    """
+    path = Path(path) if path else HERE / "config.yaml"
+    current = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}) if path.exists() else {}
+    merged = _merge(current, updates)
+    path.write_text(yaml.safe_dump(merged, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return path

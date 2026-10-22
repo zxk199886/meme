@@ -60,6 +60,8 @@ price:
   coingecko_id: ""
   # 手动价格：只用于显示/估算，不会触发真租（自动策略要求实时价格）
   manual_usd: null
+  # true = 拿不到实时价格时，模拟模式用上面的手动价格继续模拟（真租永远不用手动价格）
+  manual_in_simulation: false
 
 # 不能自动租、但想在面板上比价的平台（每张卡每小时美元）
 manual_offers:

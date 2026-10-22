@@ -5,7 +5,9 @@
 """
 import argparse
 import json
+import math
 import os
+import re
 import secrets
 import sys
 import threading
@@ -44,7 +46,7 @@ def make_handler(ctrl, port):
             self.wfile.write(data)
 
         def _json(self, code, obj):
-            self._send(code, json.dumps(obj, ensure_ascii=False, default=str))
+            self._send(code, json.dumps(_finite(obj), ensure_ascii=False, default=str))
 
         def _host_ok(self):
             # Blocks DNS-rebinding: only answer requests addressed to localhost.
@@ -62,6 +64,8 @@ def make_handler(ctrl, port):
                 self._json(200, ctrl.state or {"loading": True, "error": ctrl.last_error})
             elif self.path == "/api/history":
                 self._json(200, history(ctrl))
+            elif self.path == "/api/settings":
+                self._json(200, settings_view(ctrl))
             else:
                 self._json(404, {"error": "not found"})
 
@@ -79,6 +83,11 @@ def make_handler(ctrl, port):
                     ctrl.stop_all()
                 elif self.path == "/api/destroy":
                     ctrl.destroy_one(body.get("id"))
+                elif self.path == "/api/settings":
+                    apply_settings(ctrl, body)
+                    # Fetching with the new settings can take a while; don't hold the request.
+                    threading.Thread(target=ctrl.cycle, daemon=True).start()
+                    return self._json(200, settings_view(ctrl))
                 elif self.path != "/api/refresh":
                     return self._json(404, {"error": "not found"})
                 ctrl.cycle()
@@ -87,6 +96,75 @@ def make_handler(ctrl, port):
                 self._json(400, {"error": str(exc)})
 
     return Handler
+
+
+def _finite(obj):
+    """NaN/Infinity aren't valid JSON and would break the page's parser."""
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    if isinstance(obj, dict):
+        return {k: _finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite(v) for v in obj]
+    return obj
+
+
+def settings_view(ctrl):
+    """The editable settings, with the API key masked."""
+    cfg = ctrl.cfg
+    key = cfg["vast"]["api_key"] or ""
+    p = cfg["price"]
+    return {
+        "mock": ctrl.mock,
+        "config_path": cfg.get("_path"),
+        "price": {k: p.get(k) for k in ("safetrade_market", "coingecko_id", "manual_usd", "manual_in_simulation")},
+        "vast_key_set": bool(key),
+        "vast_key_hint": key[-4:] if len(key) >= 8 else "",
+        "vast_key_from_env": bool(os.environ.get("VAST_API_KEY")),
+        "wallet": cfg["pool"].get("wallet") or "",
+    }
+
+
+SLUG = re.compile(r"^[A-Za-z0-9_.\-]{0,64}$")
+
+
+def apply_settings(ctrl, body):
+    """Validate the settings form, write them to config.yaml and reload."""
+    if ctrl.mock:
+        raise ValueError("演示模式（假数据）不能保存设置")
+    p = body.get("price") or {}
+    updates = {"price": {}, "vast": {}, "pool": {}}
+    market = str(p.get("safetrade_market", "")).strip().lower()
+    if not market or not SLUG.match(market):
+        raise ValueError("SafeTrade 交易对只能是字母数字，例如 prlusdt")
+    coin = str(p.get("coingecko_id") or "").strip().lower()
+    if not SLUG.match(coin):
+        raise ValueError("CoinGecko 币 id 只能是字母数字和 - ，例如 pearl")
+    manual = p.get("manual_usd")
+    if manual in ("", None):
+        manual = None
+    else:
+        try:
+            manual = float(manual)
+        except (TypeError, ValueError):
+            raise ValueError("手动价格要填数字") from None
+        if not 0 < manual < 1e6:
+            raise ValueError("手动价格要大于 0")
+    updates["price"] = {"safetrade_market": market, "coingecko_id": coin, "manual_usd": manual,
+                        "manual_in_simulation": bool(p.get("manual_in_simulation"))}
+    key = str(body.get("vast_api_key") or "").strip()
+    if body.get("clear_vast_key"):
+        updates["vast"]["api_key"] = ""
+    elif key:
+        if not re.fullmatch(r"[A-Za-z0-9_\-]{16,200}", key):
+            raise ValueError("Vast API key 格式不对（应该是一长串字母数字）")
+        updates["vast"]["api_key"] = key
+    wallet = str(body.get("wallet") or "").strip()
+    if wallet and not re.fullmatch(r"[A-Za-z0-9_.:\-]{8,200}", wallet):
+        raise ValueError("钱包地址格式不对")
+    updates["pool"]["wallet"] = wallet
+    path = config_mod.save({k: v for k, v in updates.items() if v}, ctrl.cfg.get("_path"))
+    ctrl.reload(config_mod.load(path))
 
 
 def history(ctrl, hours=24, max_points=300):
@@ -142,6 +220,7 @@ def build(config_path=None, mock=False):
         session = requests.Session()
         db = HERE / "pearl.sqlite3"
     ctrl = Controller(cfg, session, Store(str(db)))
+    ctrl.mock = mock
     if mock:
         seed_history(ctrl, session)
 
